@@ -1,0 +1,28 @@
+# Python/runtime artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+
+# Local IDE and assistant state
+.claude/
+.vscode/
+.idea/
+
+# Generated Lithopainter artifacts
+output/
+*.3mf
+*.stl
+
+# User/source images are local working inputs, not project source.
+input/*
+!input/.gitkeep
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+
