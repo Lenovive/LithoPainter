@@ -2935,13 +2935,13 @@ class LithoWindow(QMainWindow):
         profile_lbl.setFont(_uf(11))
         profile_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;")
         _on_theme(lambda: profile_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
-        vlay.addWidget(profile_lbl)
+        content_lay.addWidget(profile_lbl)
 
         quality_lbl = QLabel("Quality")
         quality_lbl.setFont(_uf(11))
         quality_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
         _on_theme(lambda: quality_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
-        vlay.addWidget(quality_lbl)
+        content_lay.addWidget(quality_lbl)
 
         quality_row = QHBoxLayout()
         quality_row.setSpacing(6)
@@ -2953,7 +2953,7 @@ class LithoWindow(QMainWindow):
             self._quality_chips[key] = chip
             quality_row.addWidget(chip)
         quality_row.addStretch()
-        vlay.addLayout(quality_row)
+        content_lay.addLayout(quality_row)
 
         def _field(target_layout, lbl_text, val) -> QLineEdit:
             row = QHBoxLayout()
@@ -2972,7 +2972,7 @@ class LithoWindow(QMainWindow):
             target_layout.addLayout(row)
             return inp
 
-        self._color_px_input = _field(vlay, "Color pixel size", self._color_px_w)
+        self._color_px_input = _field(content_lay, "Color pixel size", self._color_px_w)
         self._color_px_input.setToolTip(
             "Width of one colour pixel in mm.\n"
             "Smaller = finer colour detail; must be ≥ your nozzle diameter."
@@ -2987,7 +2987,7 @@ class LithoWindow(QMainWindow):
             self._update_setting_warnings()
         self._color_px_input.textChanged.connect(_on_color_px_changed)
 
-        self._tex_px_input = _field(vlay, "Texture pixel size", self._tex_px_w)
+        self._tex_px_input = _field(content_lay, "Texture pixel size", self._tex_px_w)
         self._tex_px_input.setToolTip(
             "Width of one texture pixel in mm.\n"
             "Controls the surface relief resolution."
@@ -3001,7 +3001,7 @@ class LithoWindow(QMainWindow):
             self._update_setting_warnings()
         self._tex_px_input.textChanged.connect(_on_tex_px_changed)
 
-        self._layer_thick_input = _field(vlay, "Layer height", self._layer_thick)
+        self._layer_thick_input = _field(content_lay, "Layer height", self._layer_thick)
         self._layer_thick_input.setToolTip(
             "Thickness of each colour / backing layer in mm.\n"
             "Should match your slicer layer height (e.g. 0.10 or 0.20).\n\n"
@@ -3017,7 +3017,7 @@ class LithoWindow(QMainWindow):
             self._update_setting_warnings()
         self._layer_thick_input.textChanged.connect(_on_layer_thick_changed)
 
-        self._layer_count_input = _field(vlay, "Color layers", self._layer_count)
+        self._layer_count_input = _field(content_lay, "Color layers", self._layer_count)
         self._layer_count_input.setToolTip(
             "Number of colour layers to generate.\n"
             "5 matches the PIXEstL default and the measured palette depth."
@@ -3030,7 +3030,7 @@ class LithoWindow(QMainWindow):
             self._update_setting_warnings()
         self._layer_count_input.textChanged.connect(_on_layer_count_changed)
 
-        self._border_input = _field(vlay, "Border", self._border_mm)
+        self._border_input = _field(content_lay, "Border", self._border_mm)
         self._border_input.setToolTip(
             "Width of the solid border added around the print in mm.\n"
             "Set to 0 for no border."
@@ -3053,13 +3053,13 @@ class LithoWindow(QMainWindow):
             f"color: {T['warn']}; background: transparent;"
         ))
         self._settings_warning_label.hide()
-        vlay.addWidget(self._settings_warning_label)
+        content_lay.addWidget(self._settings_warning_label)
 
         adv_toggle = QPushButton("Show advanced")
         adv_toggle.setCheckable(True)
         adv_toggle.setFixedHeight(28)
         adv_toggle.setFont(_uf(11, 500))
-        vlay.addWidget(adv_toggle)
+        content_lay.addWidget(adv_toggle)
         self._advanced_toggle = adv_toggle
 
         adv = QWidget()
@@ -3232,7 +3232,8 @@ class LithoWindow(QMainWindow):
         _wire_validator(self._row_timeout_input, QIntValidator(1, 999999))
         self._row_timeout_input.textChanged.connect(lambda v: setattr(self, "_row_timeout", v))
 
-        vlay.addWidget(adv)
+        content_lay.addWidget(adv)
+        vlay.addWidget(content)
         self._update_setting_warnings()
         return grp
 
