@@ -2154,6 +2154,7 @@ class LithoWindow(QMainWindow):
     _LEFT_PANE_MIN = 260
     _RIGHT_PANE_MIN = 300
     _CENTER_PANE_MIN = 320
+    _DRAWER_TAB_WIDTH = 22
 
     def __init__(self):
         super().__init__()
@@ -2253,21 +2254,22 @@ class LithoWindow(QMainWindow):
         center = self._build_center()
         right  = self._build_right()
 
-        left.setMinimumWidth(self._LEFT_PANE_MIN)
         center.setMinimumWidth(self._CENTER_PANE_MIN)
-        right.setMinimumWidth(self._RIGHT_PANE_MIN)
         left.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         center.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         right.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+        self._left_tab.clicked.connect(self._toggle_left_pane)
+        self._right_tab.clicked.connect(self._toggle_right_pane)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left)
         splitter.addWidget(center)
         splitter.addWidget(right)
-        splitter.setChildrenCollapsible(True)
-        splitter.setCollapsible(0, True)
+        splitter.setChildrenCollapsible(False)
+        splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
-        splitter.setCollapsible(2, True)
+        splitter.setCollapsible(2, False)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
@@ -2285,39 +2287,22 @@ class LithoWindow(QMainWindow):
         self._left_pane = left
         self._right_pane = right
 
-        self._left_tab = DrawerTab("Settings", side="left")
-        self._left_tab.clicked.connect(self._toggle_left_pane)
-        self._right_tab = DrawerTab("Filaments", side="right")
-        self._right_tab.clicked.connect(self._toggle_right_pane)
-
-        mid_row = QWidget()
-        mid_row.setStyleSheet(f"background: {T['bg']};")
-        _on_theme(lambda w=mid_row: w.setStyleSheet(f"background: {T['bg']};"))
-        mid_lay = QHBoxLayout(mid_row)
-        mid_lay.setContentsMargins(0, 0, 0, 0)
-        mid_lay.setSpacing(0)
-        mid_lay.addWidget(self._left_tab)
-        mid_lay.addWidget(splitter, 1)
-        mid_lay.addWidget(self._right_tab)
-
-        vlay.addWidget(mid_row, 1)
+        vlay.addWidget(splitter, 1)
         vlay.addWidget(_hline())
         vlay.addWidget(self._build_footer())
         QTimer.singleShot(0, self._restore_main_splitter_state)
 
     def _toggle_left_pane(self) -> None:
-        splitter = getattr(self, "_main_splitter", None)
-        if splitter is None:
+        content = getattr(self, "_left_content", None)
+        if content is None:
             return
-        sizes = splitter.sizes()
-        self._set_side_pane_visible("left", not (len(sizes) >= 1 and sizes[0] > 0))
+        self._set_side_pane_visible("left", not content.isVisible())
 
     def _toggle_right_pane(self) -> None:
-        splitter = getattr(self, "_main_splitter", None)
-        if splitter is None:
+        content = getattr(self, "_right_content", None)
+        if content is None:
             return
-        sizes = splitter.sizes()
-        self._set_side_pane_visible("right", not (len(sizes) >= 3 and sizes[2] > 0))
+        self._set_side_pane_visible("right", not content.isVisible())
 
     def _build_topbar(self) -> QWidget:
         bar = QWidget()
@@ -2471,12 +2456,14 @@ class LithoWindow(QMainWindow):
         sizes = splitter.sizes()
         if len(sizes) != 3:
             return
-        if sizes[0] > 0:
+        left_open = getattr(self, "_left_content", None) is not None and self._left_content.isVisible()
+        right_open = getattr(self, "_right_content", None) is not None and self._right_content.isVisible()
+        if left_open and sizes[0] > self._DRAWER_TAB_WIDTH:
             self._left_pane_last_width = sizes[0]
-        if sizes[2] > 0:
+        if right_open and sizes[2] > self._DRAWER_TAB_WIDTH:
             self._right_pane_last_width = sizes[2]
-        _settings.setValue("left_pane_visible", sizes[0] > 0)
-        _settings.setValue("right_pane_visible", sizes[2] > 0)
+        _settings.setValue("left_pane_visible", left_open)
+        _settings.setValue("right_pane_visible", right_open)
         _settings.setValue("left_pane_last_width", self._left_pane_last_width)
         _settings.setValue("right_pane_last_width", self._right_pane_last_width)
         self._sync_pane_toggles()
@@ -2489,22 +2476,29 @@ class LithoWindow(QMainWindow):
         if len(sizes) != 3:
             return
 
+        tab_width = self._DRAWER_TAB_WIDTH
         if side == "left":
             index = 0
             last_attr = "_left_pane_last_width"
             default_width = self._LEFT_PANE_DEFAULT
-            min_width = self._LEFT_PANE_MIN
+            min_width = self._LEFT_PANE_MIN + tab_width
             setting_key = "left_pane_visible"
+            content = getattr(self, "_left_content", None)
         else:
             index = 2
             last_attr = "_right_pane_last_width"
             default_width = self._RIGHT_PANE_DEFAULT
-            min_width = self._RIGHT_PANE_MIN
+            min_width = self._RIGHT_PANE_MIN + tab_width
             setting_key = "right_pane_visible"
+            content = getattr(self, "_right_content", None)
 
         current = sizes[index]
+        currently_open = content is not None and content.isVisible()
+
         if visible:
-            if current <= 0:
+            if not currently_open:
+                if content is not None:
+                    content.setVisible(True)
                 desired = max(min_width, getattr(self, last_attr, default_width))
                 total = max(1, sum(sizes))
                 other_index = 2 if index == 0 else 0
@@ -2514,13 +2508,16 @@ class LithoWindow(QMainWindow):
                 )
                 desired = min(desired, max_desired)
                 sizes[index] = desired
-                sizes[1] = max(self._CENTER_PANE_MIN, sizes[1] - desired)
+                sizes[1] = max(self._CENTER_PANE_MIN, sizes[1] - (desired - current))
                 splitter.setSizes(sizes)
         else:
-            if current > 0:
-                setattr(self, last_attr, current)
-                sizes[1] += current
-                sizes[index] = 0
+            if currently_open:
+                if current > tab_width:
+                    setattr(self, last_attr, current)
+                if content is not None:
+                    content.setVisible(False)
+                sizes[1] += (current - tab_width)
+                sizes[index] = tab_width
                 splitter.setSizes(sizes)
 
         _settings.setValue(setting_key, visible)
@@ -2529,18 +2526,14 @@ class LithoWindow(QMainWindow):
         self._sync_pane_toggles()
 
     def _sync_pane_toggles(self) -> None:
-        splitter = getattr(self, "_main_splitter", None)
-        if splitter is None:
-            return
-        sizes = splitter.sizes()
-        if len(sizes) != 3:
-            return
         left_tab = getattr(self, "_left_tab", None)
-        if left_tab is not None:
-            left_tab.set_open(sizes[0] > 0)
+        left_content = getattr(self, "_left_content", None)
+        if left_tab is not None and left_content is not None:
+            left_tab.set_open(left_content.isVisible())
         right_tab = getattr(self, "_right_tab", None)
-        if right_tab is not None:
-            right_tab.set_open(sizes[2] > 0)
+        right_content = getattr(self, "_right_content", None)
+        if right_tab is not None and right_content is not None:
+            right_tab.set_open(right_content.isVisible())
 
     def _build_left(self) -> QWidget:
         col = QWidget()
@@ -2592,14 +2585,31 @@ class LithoWindow(QMainWindow):
         vlay.setContentsMargins(16, 14, 16, 18)
         vlay.setSpacing(10)
 
+        # Collapsible content container
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(10)
+
         # Header row
         head_row = QHBoxLayout()
         head_row.setSpacing(6)
+
+        chevron = QPushButton("▼")
+        chevron.setFixedSize(18, 18)
+        chevron.setFont(_uf(9))
+        chevron.setFlat(True)
+        chevron.setStyleSheet("background: transparent; border: none; padding: 0;")
+        chevron.setCursor(Qt.CursorShape.PointingHandCursor)
+        head_row.addWidget(chevron)
+
         head = QLabel("Image settings")
         head.setFont(_uf(10, 600))
         head.setStyleSheet(f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;")
         _on_theme(lambda: head.setStyleSheet(
             f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;"))
+        head.setCursor(Qt.CursorShape.PointingHandCursor)
         head_row.addWidget(head)
         head_row.addStretch()
         reset_btn = QPushButton("Reset all")
@@ -2609,6 +2619,14 @@ class LithoWindow(QMainWindow):
         reset_btn.clicked.connect(self._reset_adjustments)
         head_row.addWidget(reset_btn)
         vlay.addLayout(head_row)
+
+        def _toggle_image_tools():
+            expanded = content.isVisible()
+            content.setVisible(not expanded)
+            chevron.setText("▶" if expanded else "▼")
+
+        chevron.clicked.connect(_toggle_image_tools)
+        head.mousePressEvent = lambda _e: _toggle_image_tools()
 
         # Rotate row
         rot_row = QHBoxLayout()
@@ -2637,7 +2655,7 @@ class LithoWindow(QMainWindow):
         rot_right.clicked.connect(lambda: self._on_rotate(90))
         rot_row.addWidget(rot_left)
         rot_row.addWidget(rot_right)
-        vlay.addLayout(rot_row)
+        content_lay.addLayout(rot_row)
 
         def _signed_value(value: int) -> str:
             return "0" if value == 0 else f"{value:+d}"
@@ -2681,8 +2699,9 @@ class LithoWindow(QMainWindow):
 
             control.valueChanged.connect(_make_handler(attr))
             self._adj_sliders[attr] = control
-            vlay.addWidget(control)
+            content_lay.addWidget(control)
 
+        vlay.addWidget(content)
         return grp
 
     def _make_frame_group(self) -> QWidget:
