@@ -2539,6 +2539,7 @@ class LithoWindow(QMainWindow):
         col = QWidget()
         col.setStyleSheet(f"background: {T['panel']};")
         _on_theme(lambda: col.setStyleSheet(f"background: {T['panel']};"))
+        col.setMinimumWidth(self._LEFT_PANE_MIN)
         vlay = QVBoxLayout(col)
         vlay.setContentsMargins(0, 0, 0, 0)
         vlay.setSpacing(0)
@@ -2576,7 +2577,19 @@ class LithoWindow(QMainWindow):
 
         scroll.setWidget(inner)
         vlay.addWidget(scroll, 1)
-        return col
+
+        self._left_content = col
+        self._left_tab = DrawerTab("Settings", side="left")
+
+        outer = QWidget()
+        outer.setStyleSheet(f"background: {T['panel']};")
+        _on_theme(lambda w=outer: w.setStyleSheet(f"background: {T['panel']};"))
+        olay = QHBoxLayout(outer)
+        olay.setContentsMargins(0, 0, 0, 0)
+        olay.setSpacing(0)
+        olay.addWidget(col, 1)
+        olay.addWidget(self._left_tab)
+        return outer
 
     def _make_image_tools_group(self) -> QWidget:
         grp = QWidget()
@@ -2711,11 +2724,41 @@ class LithoWindow(QMainWindow):
         vlay.setContentsMargins(16, 14, 16, 18)
         vlay.setSpacing(10)
 
+        # Collapsible content container
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(10)
+
+        # Header row
+        head_row = QHBoxLayout()
+        head_row.setSpacing(6)
+
+        chevron = QPushButton("▼")
+        chevron.setFixedSize(18, 18)
+        chevron.setFont(_uf(9))
+        chevron.setFlat(True)
+        chevron.setStyleSheet("background: transparent; border: none; padding: 0;")
+        chevron.setCursor(Qt.CursorShape.PointingHandCursor)
+        head_row.addWidget(chevron)
+
         head = QLabel("Frame presets")
         head.setFont(_uf(10, 600))
-        head.setStyleSheet(f"color: {T['mid']}; letter-spacing: 0.12em; text-transform: uppercase; background: transparent;")
+        head.setStyleSheet(f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;")
         _on_theme(lambda: head.setStyleSheet(f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;"))
-        vlay.addWidget(head)
+        head.setCursor(Qt.CursorShape.PointingHandCursor)
+        head_row.addWidget(head)
+        head_row.addStretch()
+        vlay.addLayout(head_row)
+
+        def _toggle_frame():
+            expanded = content.isVisible()
+            content.setVisible(not expanded)
+            chevron.setText("▶" if expanded else "▼")
+
+        chevron.clicked.connect(_toggle_frame)
+        head.mousePressEvent = lambda _e: _toggle_frame()
 
         # Preset chips — 2 columns
         self._preset_chips: dict = {}
@@ -2727,7 +2770,7 @@ class LithoWindow(QMainWindow):
             chip.selected.connect(self._apply_preset)
             self._preset_chips[key] = chip
             grid.addWidget(chip, i // 2, i % 2)
-        vlay.addLayout(grid)
+        content_lay.addLayout(grid)
 
         # Width / height inputs
         dim_row = QHBoxLayout()
@@ -2771,7 +2814,8 @@ class LithoWindow(QMainWindow):
         dim_row.addWidget(lock_lbl)
         dim_row.addWidget(self._lock_switch)
 
-        vlay.addLayout(dim_row)
+        content_lay.addLayout(dim_row)
+        vlay.addWidget(content)
         return grp
 
     def _make_engine_group(self) -> QWidget:
@@ -2781,18 +2825,48 @@ class LithoWindow(QMainWindow):
         vlay.setContentsMargins(16, 14, 16, 18)
         vlay.setSpacing(10)
 
+        # Collapsible content container
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(10)
+
+        # Header row
+        head_row = QHBoxLayout()
+        head_row.setSpacing(6)
+
+        chevron = QPushButton("▼")
+        chevron.setFixedSize(18, 18)
+        chevron.setFont(_uf(9))
+        chevron.setFlat(True)
+        chevron.setStyleSheet("background: transparent; border: none; padding: 0;")
+        chevron.setCursor(Qt.CursorShape.PointingHandCursor)
+        head_row.addWidget(chevron)
+
         head = QLabel("Engine")
         head.setFont(_uf(10, 600))
-        head.setStyleSheet(f"color: {T['mid']}; background: transparent;")
-        _on_theme(lambda: head.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
-        vlay.addWidget(head)
+        head.setStyleSheet(f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;")
+        _on_theme(lambda: head.setStyleSheet(f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;"))
+        head.setCursor(Qt.CursorShape.PointingHandCursor)
+        head_row.addWidget(head)
+        head_row.addStretch()
+        vlay.addLayout(head_row)
+
+        def _toggle_engine():
+            expanded = content.isVisible()
+            content.setVisible(not expanded)
+            chevron.setText("▶" if expanded else "▼")
+
+        chevron.clicked.connect(_toggle_engine)
+        head.mousePressEvent = lambda _e: _toggle_engine()
 
         # Layer height chips
         lh_lbl = QLabel("Layer height")
         lh_lbl.setFont(_uf(11))
         lh_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
         _on_theme(lambda: lh_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
-        vlay.addWidget(lh_lbl)
+        content_lay.addWidget(lh_lbl)
         lh_row = QHBoxLayout()
         lh_row.setSpacing(6)
         self._layer_chips: dict = {}
@@ -2803,7 +2877,8 @@ class LithoWindow(QMainWindow):
             self._layer_chips[key] = chip
             lh_row.addWidget(chip)
         lh_row.addStretch()
-        vlay.addLayout(lh_row)
+        content_lay.addLayout(lh_row)
+        vlay.addWidget(content)
         return grp
 
     def _make_resolution_group(self) -> QWidget:
@@ -2813,12 +2888,30 @@ class LithoWindow(QMainWindow):
         vlay.setContentsMargins(16, 14, 16, 18)
         vlay.setSpacing(10)
 
+        # Collapsible content container
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(0, 0, 0, 0)
+        content_lay.setSpacing(10)
+
+        # Header row
         head_row = QHBoxLayout()
         head_row.setSpacing(6)
+
+        chevron = QPushButton("▼")
+        chevron.setFixedSize(18, 18)
+        chevron.setFont(_uf(9))
+        chevron.setFlat(True)
+        chevron.setStyleSheet("background: transparent; border: none; padding: 0;")
+        chevron.setCursor(Qt.CursorShape.PointingHandCursor)
+        head_row.addWidget(chevron)
+
         head = QLabel("Print settings")
         head.setFont(_uf(10, 600))
-        head.setStyleSheet(f"color: {T['mid']}; background: transparent;")
-        _on_theme(lambda: head.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
+        head.setStyleSheet(f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;")
+        _on_theme(lambda: head.setStyleSheet(f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;"))
+        head.setCursor(Qt.CursorShape.PointingHandCursor)
         head_row.addWidget(head)
         head_row.addStretch()
         reset_btn = QPushButton("Reset defaults")
@@ -2828,6 +2921,14 @@ class LithoWindow(QMainWindow):
         reset_btn.clicked.connect(self._reset_print_defaults)
         head_row.addWidget(reset_btn)
         vlay.addLayout(head_row)
+
+        def _toggle_print():
+            expanded = content.isVisible()
+            content.setVisible(not expanded)
+            chevron.setText("▶" if expanded else "▼")
+
+        chevron.clicked.connect(_toggle_print)
+        head.mousePressEvent = lambda _e: _toggle_print()
 
         self._profile_chips: dict = {}
         profile_lbl = QLabel("Profile:  High Quality Lithophane")
@@ -3216,6 +3317,7 @@ class LithoWindow(QMainWindow):
         col = QWidget()
         col.setStyleSheet(f"background: {T['panel']};")
         _on_theme(lambda: col.setStyleSheet(f"background: {T['panel']};"))
+        col.setMinimumWidth(self._RIGHT_PANE_MIN)
         vlay = QVBoxLayout(col)
         vlay.setContentsMargins(0, 0, 0, 0)
         vlay.setSpacing(0)
@@ -3293,7 +3395,19 @@ class LithoWindow(QMainWindow):
         self._filament_count_lbl.setStyleSheet(f"color: {T['dim']}; background: {T['panel']}; border-top: 1px solid {T['line_2']};")
         _on_theme(lambda: self._filament_count_lbl.setStyleSheet(f"color: {T['dim']}; background: {T['panel']}; border-top: 1px solid {T['line_2']};"))
         vlay.addWidget(self._filament_count_lbl)
-        return col
+
+        self._right_content = col
+        self._right_tab = DrawerTab("Filaments", side="right")
+
+        outer = QWidget()
+        outer.setStyleSheet(f"background: {T['panel']};")
+        _on_theme(lambda w=outer: w.setStyleSheet(f"background: {T['panel']};"))
+        olay = QHBoxLayout(outer)
+        olay.setContentsMargins(0, 0, 0, 0)
+        olay.setSpacing(0)
+        olay.addWidget(self._right_tab)
+        olay.addWidget(col, 1)
+        return outer
 
     def _build_footer(self) -> QWidget:
         foot = QWidget()
