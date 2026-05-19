@@ -11,6 +11,33 @@ env/
 .claude/
 .vscode/
 .idea/
+*.code-workspace
+CLAUDE.md
+AGENTS.md
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.python-version
+
+# Packaging
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Secrets / env
+.env
+.env.local
+.envrc
+
+# Editor swap/backup
+*.swp
+*~
+
+# Logs
+*.log
 
 # Generated Lithopainter artifacts
 output/

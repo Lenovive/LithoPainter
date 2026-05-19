@@ -95,9 +95,7 @@ THEMES = {
 }
 
 _settings   = QSettings("Litho", "Litho")
-_theme_name = _settings.value("theme", "light")
-if _theme_name not in THEMES:
-    _theme_name = "light"
+_theme_name = "dark"
 T: dict = THEMES[_theme_name].copy()
 _theme_cbs: list = []
 
@@ -157,8 +155,8 @@ QLineEdit {{
     background: {T['panel_2']};
     border: 1px solid {T['line']};
     border-radius: 6px;
-    padding: 0 10px;
-    height: 32px;
+    padding: 0 8px;
+    min-height: 22px;
     color: {T['ink']};
     selection-background-color: {T['selected']};
 }}
@@ -178,10 +176,10 @@ QPushButton {{
     background: {T['panel_2']};
     border: 1px solid {T['line']};
     border-radius: 6px;
-    padding: 0 12px;
-    height: 30px;
+    padding: 0 8px;
+    min-height: 20px;
     color: {T['ink_2']};
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
 }}
 QPushButton:hover {{
@@ -658,7 +656,7 @@ class LayerChip(QWidget):
         self._label  = label
         self._hint   = hint
         self._active = False
-        self.setFixedSize(64, 36)
+        self.setFixedSize(44, 30)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def setActive(self, v: bool):
@@ -672,13 +670,14 @@ class LayerChip(QWidget):
         border = QColor(T["ink"] if self._active else T["line"])
         p.setPen(QPen(border, 1))
         p.setBrush(QBrush(bg))
-        p.drawRoundedRect(0, 0, 64, 36, 5, 5)
+        w, h = self.width(), self.height()
+        p.drawRoundedRect(0, 0, w, h, 4, 4)
         p.setPen(QPen(QColor(T["ink"])))
-        p.setFont(_mf(12, 500))
-        p.drawText(QRect(0, 4, 64, 16), Qt.AlignmentFlag.AlignCenter, self._label)
-        p.setFont(_uf(9))
+        p.setFont(_mf(10, 500))
+        p.drawText(QRect(0, 2, w, 14), Qt.AlignmentFlag.AlignCenter, self._label)
+        p.setFont(_uf(8))
         p.setPen(QPen(QColor(T["mid"])))
-        p.drawText(QRect(0, 20, 64, 14), Qt.AlignmentFlag.AlignCenter, self._hint)
+        p.drawText(QRect(0, 16, w, 12), Qt.AlignmentFlag.AlignCenter, self._hint)
         p.end()
 
     def mousePressEvent(self, _):
@@ -811,14 +810,14 @@ class SourceCard(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(80)
+        self.setFixedHeight(64)
         self._thumb: QPixmap | None = None
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(16, 12, 16, 12)
-        lay.setSpacing(12)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(8)
 
         self._thumb_lbl = QLabel()
-        self._thumb_lbl.setFixedSize(56, 56)
+        self._thumb_lbl.setFixedSize(40, 40)
         self._thumb_lbl.setStyleSheet(
             f"background: {T['line']}; border-radius: 4px;"
         )
@@ -830,7 +829,7 @@ class SourceCard(QWidget):
         right = QVBoxLayout()
         right.setSpacing(4)
         self._name_lbl = QLabel("No image selected")
-        self._name_lbl.setFont(_uf(12, 500))
+        self._name_lbl.setFont(_uf(11, 500))
         self._name_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;")
         _on_theme(lambda: self._name_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
         right.addWidget(self._name_lbl)
@@ -842,8 +841,8 @@ class SourceCard(QWidget):
         right.addWidget(self._meta_lbl)
 
         browse_btn = QPushButton("Browse image…")
-        browse_btn.setFont(_uf(11, 500))
-        browse_btn.setFixedHeight(24)
+        browse_btn.setFont(_uf(10, 500))
+        browse_btn.setFixedHeight(20)
         browse_btn.clicked.connect(self.browse_clicked)
         right.addWidget(browse_btn)
         lay.addLayout(right)
@@ -857,13 +856,13 @@ class SourceCard(QWidget):
             self._meta_lbl.setText(f"{size[0]} × {size[1]} px")
         pix = QPixmap(path)
         if not pix.isNull():
-            pix = pix.scaled(56, 56, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            pix = pix.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                              Qt.TransformationMode.SmoothTransformation)
             w, h = pix.width(), pix.height()
-            if w > 56 or h > 56:
-                x = (w - 56) // 2
-                y = (h - 56) // 2
-                pix = pix.copy(x, y, 56, 56)
+            if w > 40 or h > 40:
+                x = (w - 40) // 2
+                y = (h - 40) // 2
+                pix = pix.copy(x, y, 40, 40)
             self._thumb_lbl.setPixmap(pix)
 
 
@@ -886,23 +885,23 @@ class AdjustmentControl(QFrame):
         self._enabled = True
         self.setObjectName("AdjustmentControl")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(82)
+        self.setMinimumHeight(62)
         self.setToolTip(tooltip)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 7)
-        lay.setSpacing(5)
+        lay.setContentsMargins(8, 5, 8, 4)
+        lay.setSpacing(2)
 
         top = QHBoxLayout()
-        top.setSpacing(8)
+        top.setSpacing(6)
         self._label = QLabel(label)
-        self._label.setFont(_uf(11, 500))
+        self._label.setFont(_uf(10, 500))
         top.addWidget(self._label)
         top.addStretch()
 
         self._value_lbl = QLabel(self._formatter(0))
         self._value_lbl.setFont(_mf(10, 500))
-        self._value_lbl.setFixedWidth(64)
+        self._value_lbl.setFixedWidth(46)
         self._value_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         top.addWidget(self._value_lbl)
         lay.addLayout(top)
@@ -2149,9 +2148,9 @@ def _safe_dirname(name: str) -> str:
 
 # ── Main window ───────────────────────────────────────────────────────────────
 class LithoWindow(QMainWindow):
-    _LEFT_PANE_DEFAULT = 312
+    _LEFT_PANE_DEFAULT = 230
     _RIGHT_PANE_DEFAULT = 348
-    _LEFT_PANE_MIN = 260
+    _LEFT_PANE_MIN = 200
     _RIGHT_PANE_MIN = 300
     _CENTER_PANE_MIN = 320
     _DRAWER_TAB_WIDTH = 22
@@ -2333,58 +2332,6 @@ class LithoWindow(QMainWindow):
         lay.addWidget(self._status_pill)
 
         lay.addStretch()
-
-        # Theme toggle
-        self._theme_toggle = ThemeToggle()
-        self._theme_toggle.changed.connect(_apply_theme)
-        lay.addWidget(self._theme_toggle)
-
-        lay.addWidget(_vline())
-
-        # Save palette button
-        save_btn = QPushButton("Save palette")
-        save_btn.setFont(_uf(12, 500))
-        save_btn.setFixedHeight(30)
-        save_btn.clicked.connect(self._save_palette)
-        lay.addWidget(save_btn)
-
-        save_as_btn = QPushButton("Save as…")
-        save_as_btn.setFont(_uf(12, 500))
-        save_as_btn.setFixedHeight(30)
-        save_as_btn.setToolTip("Save palette to a new file")
-        save_as_btn.clicked.connect(self._save_palette_as)
-        lay.addWidget(save_as_btn)
-
-        # Generate button (topbar shortcut)
-        gen_btn = QPushButton("Generate STL")
-        gen_btn.setFont(_uf(12, 600))
-        gen_btn.setFixedHeight(30)
-        gen_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {T['ink']};
-                color: {T['on_ink']};
-                border: none;
-                border-radius: 6px;
-                padding: 0 14px;
-            }}
-            QPushButton:hover {{ background: {T['ink_2']}; }}
-            QPushButton:disabled {{ background: {T['dim']}; }}
-        """)
-        _on_theme(lambda: gen_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {T['ink']};
-                color: {T['on_ink']};
-                border: none;
-                border-radius: 6px;
-                padding: 0 14px;
-            }}
-            QPushButton:hover {{ background: {T['ink_2']}; }}
-            QPushButton:disabled {{ background: {T['dim']}; }}
-        """))
-        gen_btn.setEnabled(False)
-        gen_btn.clicked.connect(self._generate_stl)
-        self._gen_btn_top = gen_btn
-        lay.addWidget(gen_btn)
 
         return bar
 
@@ -2595,15 +2542,15 @@ class LithoWindow(QMainWindow):
         grp = QWidget()
         grp.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(grp)
-        vlay.setContentsMargins(16, 14, 16, 18)
-        vlay.setSpacing(10)
+        vlay.setContentsMargins(10, 8, 10, 10)
+        vlay.setSpacing(6)
 
         # Collapsible content container
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
-        content_lay.setSpacing(10)
+        content_lay.setSpacing(5)
 
         # Header row
         head_row = QHBoxLayout()
@@ -2626,8 +2573,8 @@ class LithoWindow(QMainWindow):
         head_row.addWidget(head)
         head_row.addStretch()
         reset_btn = QPushButton("Reset all")
-        reset_btn.setFixedHeight(22)
-        reset_btn.setFont(_uf(10))
+        reset_btn.setFixedHeight(18)
+        reset_btn.setFont(_uf(9))
         reset_btn.setToolTip("Reset all adjustments to zero")
         reset_btn.clicked.connect(self._reset_adjustments)
         head_row.addWidget(reset_btn)
@@ -2651,19 +2598,19 @@ class LithoWindow(QMainWindow):
         rot_row.addWidget(rot_lbl)
         rot_row.addStretch()
         fit_crop_btn = QPushButton("Fit crop")
-        fit_crop_btn.setFixedSize(68, 28)
-        fit_crop_btn.setFont(_uf(11))
+        fit_crop_btn.setFixedSize(56, 22)
+        fit_crop_btn.setFont(_uf(10))
         fit_crop_btn.setToolTip("Reset and center the crop box")
         fit_crop_btn.clicked.connect(self._recenter_crop)
         rot_row.addWidget(fit_crop_btn)
         rot_left = QPushButton("↺")
-        rot_left.setFixedSize(34, 28)
-        rot_left.setFont(_uf(14))
+        rot_left.setFixedSize(28, 22)
+        rot_left.setFont(_uf(13))
         rot_left.setToolTip("Rotate 90° counter-clockwise")
         rot_left.clicked.connect(lambda: self._on_rotate(-90))
         rot_right = QPushButton("↻")
-        rot_right.setFixedSize(34, 28)
-        rot_right.setFont(_uf(14))
+        rot_right.setFixedSize(28, 22)
+        rot_right.setFont(_uf(13))
         rot_right.setToolTip("Rotate 90° clockwise")
         rot_right.clicked.connect(lambda: self._on_rotate(90))
         rot_row.addWidget(rot_left)
@@ -2687,8 +2634,8 @@ class LithoWindow(QMainWindow):
              "-100 green", "0", "+100 magenta", _signed_value),
             ("Exposure", "Overall brightness", "_adj_exposure",
              "-2 EV", "0", "+2 EV", _exposure_value),
-            ("Highlights", "Bright-tone compression", "_adj_highlights",
-             "-100 bright", "0", "+100 recover", _signed_value),
+            ("Highlights", "Bright-tone lift or recover", "_adj_highlights",
+             "-100 recover", "0", "+100 bright", _signed_value),
             ("Shadows", "Dark-tone lift or crush", "_adj_shadows",
              "-100 crush", "0", "+100 lift", _signed_value),
             ("Saturation", "Color intensity", "_adj_saturation",
@@ -2721,15 +2668,15 @@ class LithoWindow(QMainWindow):
         grp = QWidget()
         grp.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(grp)
-        vlay.setContentsMargins(16, 14, 16, 18)
-        vlay.setSpacing(10)
+        vlay.setContentsMargins(10, 8, 10, 10)
+        vlay.setSpacing(6)
 
         # Collapsible content container
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
-        content_lay.setSpacing(10)
+        content_lay.setSpacing(6)
 
         # Header row
         head_row = QHBoxLayout()
@@ -2774,47 +2721,57 @@ class LithoWindow(QMainWindow):
 
         # Width / height inputs
         dim_row = QHBoxLayout()
-        dim_row.setSpacing(8)
-        w_lbl = QLabel("W (mm)")
-        w_lbl.setFont(_uf(11))
+        dim_row.setSpacing(6)
+        w_lbl = QLabel("W")
+        w_lbl.setFont(_uf(10))
         w_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
         _on_theme(lambda: w_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
         dim_row.addWidget(w_lbl)
         self._w_input = QLineEdit(self._width_mm)
-        self._w_input.setFixedWidth(60)
-        self._w_input.setFixedHeight(32)
-        self._w_input.setFont(_mf(12))
+        self._w_input.setFixedWidth(46)
+        self._w_input.setFixedHeight(24)
+        self._w_input.setFont(_mf(10))
         self._w_input.setToolTip("Print width in millimetres")
         _wire_validator(self._w_input, QDoubleValidator(0.1, 9999.0, 2))
         self._w_input.textChanged.connect(self._on_w_changed)
         dim_row.addWidget(self._w_input)
-        dim_row.addSpacing(8)
-        h_lbl = QLabel("H (mm)")
-        h_lbl.setFont(_uf(11))
+        dim_row.addSpacing(4)
+        h_lbl = QLabel("H")
+        h_lbl.setFont(_uf(10))
         h_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
         _on_theme(lambda: h_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
         dim_row.addWidget(h_lbl)
         self._h_input = QLineEdit(self._height_mm)
-        self._h_input.setFixedWidth(60)
-        self._h_input.setFixedHeight(32)
-        self._h_input.setFont(_mf(12))
+        self._h_input.setFixedWidth(46)
+        self._h_input.setFixedHeight(24)
+        self._h_input.setFont(_mf(10))
         self._h_input.setToolTip("Print height in millimetres (leave blank to derive from width + aspect ratio)")
         _wire_validator(self._h_input, QDoubleValidator(0.1, 9999.0, 2))
         self._h_input.textChanged.connect(self._on_h_changed)
         dim_row.addWidget(self._h_input)
+        unit_lbl = QLabel("mm")
+        unit_lbl.setFont(_uf(10))
+        unit_lbl.setStyleSheet(f"color: {T['dim']}; background: transparent;")
+        _on_theme(lambda: unit_lbl.setStyleSheet(f"color: {T['dim']}; background: transparent;"))
+        dim_row.addWidget(unit_lbl)
         dim_row.addStretch()
 
-        # Lock toggle
+        content_lay.addLayout(dim_row)
+
+        # Lock toggle on its own row
+        lock_row = QHBoxLayout()
+        lock_row.setSpacing(6)
         lock_lbl = QLabel("Lock ratio")
-        lock_lbl.setFont(_uf(11))
+        lock_lbl.setFont(_uf(10))
         lock_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
         _on_theme(lambda: lock_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
         self._lock_switch = ToggleSwitch(self._lock_ratio)
         self._lock_switch.toggled.connect(self._on_lock_toggled)
-        dim_row.addWidget(lock_lbl)
-        dim_row.addWidget(self._lock_switch)
+        lock_row.addWidget(lock_lbl)
+        lock_row.addStretch()
+        lock_row.addWidget(self._lock_switch)
+        content_lay.addLayout(lock_row)
 
-        content_lay.addLayout(dim_row)
         vlay.addWidget(content)
         return grp
 
@@ -2822,15 +2779,15 @@ class LithoWindow(QMainWindow):
         grp = QWidget()
         grp.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(grp)
-        vlay.setContentsMargins(16, 14, 16, 18)
-        vlay.setSpacing(10)
+        vlay.setContentsMargins(10, 8, 10, 10)
+        vlay.setSpacing(6)
 
         # Collapsible content container
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
-        content_lay.setSpacing(10)
+        content_lay.setSpacing(6)
 
         # Header row
         head_row = QHBoxLayout()
@@ -2863,12 +2820,12 @@ class LithoWindow(QMainWindow):
 
         # Layer height chips
         lh_lbl = QLabel("Layer height")
-        lh_lbl.setFont(_uf(11))
+        lh_lbl.setFont(_uf(10))
         lh_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
         _on_theme(lambda: lh_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
         content_lay.addWidget(lh_lbl)
         lh_row = QHBoxLayout()
-        lh_row.setSpacing(6)
+        lh_row.setSpacing(4)
         self._layer_chips: dict = {}
         for key, label, hint in LAYER_HEIGHTS:
             chip = LayerChip(key, label, hint)
@@ -2885,15 +2842,15 @@ class LithoWindow(QMainWindow):
         grp = QWidget()
         grp.setStyleSheet("background: transparent;")
         vlay = QVBoxLayout(grp)
-        vlay.setContentsMargins(16, 14, 16, 18)
-        vlay.setSpacing(10)
+        vlay.setContentsMargins(10, 8, 10, 10)
+        vlay.setSpacing(6)
 
         # Collapsible content container
         content = QWidget()
         content.setStyleSheet("background: transparent;")
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
-        content_lay.setSpacing(10)
+        content_lay.setSpacing(6)
 
         # Header row
         head_row = QHBoxLayout()
@@ -2915,8 +2872,8 @@ class LithoWindow(QMainWindow):
         head_row.addWidget(head)
         head_row.addStretch()
         reset_btn = QPushButton("Reset defaults")
-        reset_btn.setFixedHeight(22)
-        reset_btn.setFont(_uf(10))
+        reset_btn.setFixedHeight(18)
+        reset_btn.setFont(_uf(9))
         reset_btn.setToolTip("Restore print settings to the recommended defaults")
         reset_btn.clicked.connect(self._reset_print_defaults)
         head_row.addWidget(reset_btn)
@@ -2957,15 +2914,15 @@ class LithoWindow(QMainWindow):
 
         def _field(target_layout, lbl_text, val) -> QLineEdit:
             row = QHBoxLayout()
-            row.setSpacing(8)
+            row.setSpacing(6)
             lbl = QLabel(lbl_text)
-            lbl.setFont(_uf(11))
-            lbl.setFixedWidth(148)
+            lbl.setFont(_uf(10))
+            lbl.setMinimumWidth(0)
             lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
             _on_theme(lambda: lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
             inp = QLineEdit(val)
-            inp.setFont(_mf(12))
-            inp.setFixedSize(70, 32)
+            inp.setFont(_mf(10))
+            inp.setFixedSize(54, 24)
             row.addWidget(lbl)
             row.addWidget(inp)
             row.addStretch()
@@ -3279,8 +3236,8 @@ class LithoWindow(QMainWindow):
         stage_split = QSplitter(Qt.Orientation.Horizontal)
         stage_split.addWidget(self._canvas)
         stage_split.addWidget(preview_split)
-        stage_split.setStretchFactor(0, 3)
-        stage_split.setStretchFactor(1, 2)
+        stage_split.setStretchFactor(0, 1)
+        stage_split.setStretchFactor(1, 1)
         stage_split.setChildrenCollapsible(False)
         stage_split.setHandleWidth(1)
         stage_split.setStyleSheet(
@@ -3289,7 +3246,14 @@ class LithoWindow(QMainWindow):
         _on_theme(lambda s=stage_split: s.setStyleSheet(
             f"QSplitter::handle {{ background: {T['line_2']}; }}"
         ))
+        self._stage_split = stage_split
         vlay.addWidget(stage_split, 1)
+
+        def _init_stage_split_sizes(s=stage_split):
+            half = s.width() // 2
+            if half > 0:
+                s.setSizes([half, half])
+        QTimer.singleShot(0, _init_stage_split_sizes)
 
         # Stage footer
         stage_foot = QWidget()
@@ -3504,7 +3468,6 @@ class LithoWindow(QMainWindow):
 
     # ── Theme ─────────────────────────────────────────────────────────────────
     def _on_theme_changed(self):
-        self._theme_toggle.update()
         self.update()
 
     # ── Console ───────────────────────────────────────────────────────────────
@@ -3639,7 +3602,7 @@ class LithoWindow(QMainWindow):
         highlights = self._adj_highlights
         if highlights != 0:
             lut = [
-                max(0, min(255, i - int((i - 128) * highlights / 100.0 * 0.5))) if i > 128 else i
+                max(0, min(255, i + int((i - 128) * highlights / 100.0 * 0.5))) if i > 128 else i
                 for i in range(256)
             ]
             img = img.point(lut * 3)
