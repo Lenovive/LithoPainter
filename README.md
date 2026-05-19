@@ -59,27 +59,27 @@ Lithopainter.bat
 1. Select an image.
 2. Crop, rotate, or adjust it if needed.
 3. Pick a frame size or enter exact dimensions.
-4. Pick a print profile and quality.
+4. Pick a quality preset.
 5. Enable the filaments you want.
 6. Generate the STL ZIP.
 7. Open the extracted folder.
 
-## Print Profiles
+## Frame Sizes, Profile, and Quality
 
-Lithopainter includes profiles that map directly to common PIXEstL workflows:
+The left pane offers three frame-size presets, a single bundled print profile,
+and three quality presets:
 
-- `Litho detail` - Lithopainter's detailed default profile.
-- `JAR 0.2` - bundled JAR defaults for a 0.2 mm nozzle:
-  `-b 0.10`, `-f 0.20`, `-m 0.30`, `-M 1.80`.
-- `0.4 nozzle` - PIXEstL's 0.4 mm nozzle guidance:
-  `-b 0.12`, `-f 0.24`.
-- `Tex only` - texture-only lithophane output using `-z false`.
-- `Pixel FULL` - pixel-art output using `-F FULL -Z false`.
-- `1 AMS 7 col` - PIXEstL's 7-color / 1-AMS workflow using `-c 4 -l 4`.
+- Frame sizes: `Bambu Frame` (108 × 144 mm), `Mini` (54 × 72 mm),
+  `Ultra Mini` (27 × 36 mm). Exact dimensions can also be entered directly.
+- Print profile: `High Quality Lithophane` (ADDITIVE color mode, 0.10 mm layer
+  height, 5 color layers, 2 backing layers, 3–15 texture layers, CIELab color
+  distance).
+- Quality presets: `Draft` (0.30 mm pixel grid), `Balanced` (0.20 mm),
+  `Fine` (0.12 mm). These drive both the color and texture pixel widths and
+  set a grid-cell cap to keep generation tractable.
 
-The `JAR 0.2` profile follows the bundled JAR usage output. Upstream PIXEstL
-documentation may describe older defaults, so Lithopainter treats the bundled
-JAR as the local source of truth.
+For workflows that need values outside these presets, override the engine
+options directly through the advanced print settings — see below.
 
 ## Advanced Engine Options
 
