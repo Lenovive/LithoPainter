@@ -99,13 +99,16 @@ folder and re-run `Lithopainter.bat` to rebuild it from scratch.
 ## Frame Sizes, Profile, and Quality
 
 The left pane offers three frame-size presets, a single bundled print profile,
-and three quality presets:
+a color/single-color litho type selector, and three quality presets:
 
 - Frame sizes: `Bambu Frame` (108 × 144 mm), `Mini` (54 × 72 mm),
   `Ultra Mini` (27 × 36 mm). Exact dimensions can also be entered directly.
 - Print profile: `High Quality Lithophane` (ADDITIVE color mode, 0.10 mm layer
   height, 5 color layers, 2 backing layers, 3–15 texture layers, CIELab color
   distance).
+- Litho type: `Color` generates the color stack plus texture. `Single` locks
+  the filament picker to one selected print color, exports texture only, and
+  sets texture depth to 32 layers at 0.10 mm for a 3.20 mm pane.
 - Quality presets: `Draft` (0.30 mm pixel grid), `Balanced` (0.20 mm),
   `Fine` (0.12 mm). These drive both the color and texture pixel widths and
   set a grid-cell cap to keep generation tractable.
@@ -128,6 +131,15 @@ The advanced print settings expose PIXEstL options directly:
 - `-z` color layer generation
 - `-Z` texture layer generation
 
+Single-color litho mode is implemented by calling the bundled engine with
+`-z false -Z true`. There is no separate single-color PIXEstL flag; disabling
+color layers while leaving texture enabled makes the JAR emit the printable
+one-filament texture STL. The GUI sets single-color mode to 32 texture layers
+at 0.10 mm, yielding a 3.20 mm final pane. PIXEstL still requires active
+`#FFFFFF` and at least one measured non-white support color during palette
+setup, so the GUI uses a temporary engine-safe palette while keeping the user's
+one selected print filament in the UI and generated notes.
+
 Use `Engine help` in the app to run the bundled JAR's help probe and inspect
 the exact supported options and defaults.
 
@@ -141,6 +153,25 @@ java -jar lithopainter.jar -p resources\filament-palette-0.10mm.json -w 130 -H 1
 
 The JAR does not implement a formal `--help` flag. Invoking it with `--help`
 prints usage and exits non-zero with an "Unrecognized option" message.
+
+## Self Tests
+
+Run the generation-mode smoke tests from the repo root:
+
+```cmd
+python -m unittest discover -s tests
+```
+
+The tests create a tiny temporary BMP in `output/`, run the bundled JAR through
+the same command builder used by the GUI, and verify frame presets plus both
+ZIP shapes:
+
+- Frame presets feed the expected portrait and landscape dimensions into the
+  generated JAR command.
+- Color mode emits color preview, texture preview, plate STL, color STLs,
+  instructions, and texture STL.
+- Single mode locks the UI to one selected filament, sets `-M 3.200`, and
+  emits only the texture preview plus one texture STL.
 
 ## Output
 

@@ -661,13 +661,14 @@ class PresetChip(QWidget):
 class LayerChip(QWidget):
     selected = Signal(str)
 
-    def __init__(self, key: str, label: str, hint: str, parent=None):
+    def __init__(self, key: str, label: str, hint: str, parent=None,
+                 width: int = 44):
         super().__init__(parent)
         self._key    = key
         self._label  = label
         self._hint   = hint
         self._active = False
-        self.setFixedSize(44, 30)
+        self.setFixedSize(width, 30)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def setActive(self, v: bool):
@@ -2143,6 +2144,14 @@ QUALITY_PRESETS = [
     ("fine",     "Fine",     "0.12 mm", "0.12", "0.12", 8_000_000),
 ]
 
+LITHO_MODES = [
+    ("color", "Color", "multi"),
+    ("single", "Single", "1 color"),
+]
+
+SINGLE_COLOR_LAYER_HEIGHT = "0.10"
+SINGLE_COLOR_TEXTURE_MAX_LAYERS = "32"
+
 PRINT_PROFILES = [
     ("litho", "High Quality Lithophane", "", {
         "quality": "balanced", "layer_height": "0.10", "color_px": "0.20",
@@ -2182,6 +2191,7 @@ class LithoWindow(QMainWindow):
         self._filament_rows: dict  = {}   # hex -> FilamentRow
         self._filament_row_section: dict = {}  # hex -> "measured" | "flat"
         self._filament_section_headers: dict = {}  # section -> FilamentSectionHeader
+        self._single_color_hex = "#FFFFFF"
         self._proc = None
         self.output_dir = os.path.join(SCRIPT_DIR, "output")
         os.makedirs(self.output_dir, exist_ok=True)
@@ -2957,6 +2967,24 @@ class LithoWindow(QMainWindow):
         _on_theme(lambda: profile_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
         content_lay.addWidget(profile_lbl)
 
+        litho_mode_lbl = QLabel("Litho type")
+        litho_mode_lbl.setFont(_uf(11))
+        litho_mode_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
+        _on_theme(lambda: litho_mode_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
+        content_lay.addWidget(litho_mode_lbl)
+
+        litho_mode_row = QHBoxLayout()
+        litho_mode_row.setSpacing(6)
+        self._litho_mode_chips: dict = {}
+        for key, label, hint in LITHO_MODES:
+            chip = LayerChip(key, label, hint, width=68)
+            chip.setActive(key == self._current_litho_mode())
+            chip.selected.connect(self._set_litho_mode)
+            self._litho_mode_chips[key] = chip
+            litho_mode_row.addWidget(chip)
+        litho_mode_row.addStretch()
+        content_lay.addLayout(litho_mode_row)
+
         quality_lbl = QLabel("Quality")
         quality_lbl.setFont(_uf(11))
         quality_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
@@ -3171,9 +3199,9 @@ class LithoWindow(QMainWindow):
         output_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
         _on_theme(lambda: output_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
         self._output_mode_combo = QComboBox()
-        self._output_mode_combo.addItem("Color + texture", "both")
+        self._output_mode_combo.addItem("Color litho", "both")
         self._output_mode_combo.addItem("Color only", "color_only")
-        self._output_mode_combo.addItem("Texture only", "texture_only")
+        self._output_mode_combo.addItem("Single color litho", "texture_only")
         self._set_combo_data(self._output_mode_combo, self._output_mode)
         self._output_mode_combo.setFixedHeight(32)
         self._output_mode_combo.currentIndexChanged.connect(
@@ -3356,6 +3384,8 @@ class LithoWindow(QMainWindow):
         on_btn  = QPushButton("All on")
         off_btn = QPushButton("All off")
         add_btn = QPushButton("+ Add")
+        self._all_on_btn = on_btn
+        self._all_off_btn = off_btn
         on_btn.setFixedHeight(24)
         off_btn.setFixedHeight(24)
         add_btn.setFixedHeight(24)
@@ -3861,6 +3891,47 @@ class LithoWindow(QMainWindow):
         for k, chip in getattr(self, "_profile_chips", {}).items():
             chip.setActive(k == self._active_print_profile)
 
+    def _current_litho_mode(self) -> str:
+        return "single" if self._output_mode == "texture_only" else "color"
+
+    def _sync_litho_mode_chips(self) -> None:
+        mode = self._current_litho_mode()
+        for k, chip in getattr(self, "_litho_mode_chips", {}).items():
+            chip.setActive(k == mode)
+
+    def _apply_single_litho_defaults(self) -> None:
+        self._active_layer_h = SINGLE_COLOR_LAYER_HEIGHT
+        for k, chip in getattr(self, "_layer_chips", {}).items():
+            chip.setActive(k == SINGLE_COLOR_LAYER_HEIGHT)
+        self._set_text_field(
+            "_layer_thick",
+            "_layer_thick_input",
+            SINGLE_COLOR_LAYER_HEIGHT,
+        )
+        self._set_text_field(
+            "_texture_max_layers",
+            "_tex_max_input",
+            SINGLE_COLOR_TEXTURE_MAX_LAYERS,
+        )
+        self._update_z_stat()
+
+    def _set_litho_mode(self, mode: str) -> None:
+        self._output_mode = "texture_only" if mode == "single" else "both"
+        if hasattr(self, "_output_mode_combo"):
+            self._set_combo_data(self._output_mode_combo, self._output_mode)
+        if self._current_litho_mode() == "single":
+            self._apply_single_litho_defaults()
+            self._apply_single_filament_lock()
+        else:
+            self._restore_color_filament_state()
+        self._sync_litho_mode_chips()
+        self._sync_filament_controls()
+        self._apply_hex_only_visibility()
+        self._refresh_source_preview()
+        self._schedule_color_preview_refresh(delay_ms=50)
+        self._update_z_stat()
+        self._update_setting_warnings()
+
     def _sync_quality_chips(self) -> None:
         for k, chip in getattr(self, "_quality_chips", {}).items():
             chip.setActive(k == self._active_quality)
@@ -3935,6 +4006,7 @@ class LithoWindow(QMainWindow):
         self._output_mode = settings["output_mode"]
         if hasattr(self, "_output_mode_combo"):
             self._set_combo_data(self._output_mode_combo, self._output_mode)
+        self._sync_litho_mode_chips()
 
         self._distance_method = settings["distance"]
         if hasattr(self, "_distance_combo"):
@@ -3965,7 +4037,17 @@ class LithoWindow(QMainWindow):
 
     def _on_output_mode_changed(self, mode: str) -> None:
         self._output_mode = mode or "both"
+        if self._current_litho_mode() == "single":
+            self._apply_single_litho_defaults()
+            self._apply_single_filament_lock()
+        else:
+            self._restore_color_filament_state()
+        self._sync_litho_mode_chips()
+        self._sync_filament_controls()
+        self._apply_hex_only_visibility()
+        self._refresh_source_preview()
         self._schedule_color_preview_refresh()
+        self._update_z_stat()
         self._update_setting_warnings()
 
     def _on_distance_changed(self, method: str) -> None:
@@ -3986,36 +4068,45 @@ class LithoWindow(QMainWindow):
         if label is None:
             return
         warnings = []
+        color_out, texture_out = self._output_flags()
         try:
-            if int(self._layer_count or "0") > 5:
+            if color_out and int(self._layer_count or "0") > 5:
                 warnings.append("Color layers above 5 exceed most measured palette data.")
         except ValueError:
             pass
         try:
-            if float(self._color_px_w or "0") < 0.15:
+            if color_out and float(self._color_px_w or "0") < 0.15:
                 warnings.append("Very small color pixels increase STL size and print time.")
+        except ValueError:
+            pass
+        try:
+            if texture_out and not color_out and float(self._tex_px_w or "0") < 0.15:
+                warnings.append("Very small texture pixels increase STL size and print time.")
         except ValueError:
             pass
         if self._output_mode == "color_only":
             warnings.append("Output mode disables the texture layer (-Z false).")
         elif self._output_mode == "texture_only":
-            warnings.append("Output mode disables color layers (-z false).")
-        if self._color_number.strip():
+            warnings.append(
+                "Single color litho exports texture only at 32 x 0.10 mm = 3.20 mm."
+            )
+        if color_out and self._color_number.strip():
             warnings.append(f"Color count is limited to {self._color_number.strip()} per layer.")
         if self._low_memory:
             warnings.append("Low-memory mode writes temporary polygon files.")
-        if self._pixel_mode != "ADDITIVE":
-            warnings.append("Live color preview is tuned for ADDITIVE mode.")
-        elif self.palette_data:
-            if not self.color_vars.get("#FFFFFF", False):
-                warnings.append("White must be active for ADDITIVE mode.")
-            ignored = 0
-            for hx, active in self.color_vars.items():
-                info = self.palette_data.get(hx, {}) or {}
-                if active and not isinstance(info.get("layers"), dict):
-                    ignored += 1
-            if ignored:
-                warnings.append(f"{ignored} active hex-only filaments ignored in ADDITIVE mode.")
+        if color_out:
+            if self._pixel_mode != "ADDITIVE":
+                warnings.append("Live color preview is tuned for ADDITIVE mode.")
+            elif self.palette_data:
+                if not self.color_vars.get("#FFFFFF", False):
+                    warnings.append("White must be active for ADDITIVE mode.")
+                ignored = 0
+                for hx, active in self.color_vars.items():
+                    info = self.palette_data.get(hx, {}) or {}
+                    if active and not isinstance(info.get("layers"), dict):
+                        ignored += 1
+                if ignored:
+                    warnings.append(f"{ignored} active hex-only filaments ignored in ADDITIVE mode.")
         if self._last_preview_capped and self._last_preview_requested and self._last_preview_actual:
             rw, rh = self._last_preview_requested
             aw, ah = self._last_preview_actual
@@ -4065,7 +4156,12 @@ class LithoWindow(QMainWindow):
                     border_mm = 0.0
                     out_w_mm = 0.0
                 if border_mm > 0 and out_w_mm > 0:
-                    img = _apply_source_border(img, border_mm, out_w_mm, (255, 255, 255))
+                    border_rgb = (
+                        (0, 0, 0)
+                        if self._current_litho_mode() == "single"
+                        else (255, 255, 255)
+                    )
+                    img = _apply_source_border(img, border_mm, out_w_mm, border_rgb)
                     meta += f"  |  border {border_mm:g} mm"
                 data = img.tobytes("raw", "RGB")
                 qimg = QImage(data, img.width, img.height, img.width * 3,
@@ -4080,7 +4176,9 @@ class LithoWindow(QMainWindow):
     def _schedule_color_preview_refresh(self, delay_ms: int = 250) -> None:
         if not getattr(self, "_jar_panel", None):
             return
-        if not (HAS_PIL and HAS_NUMPY):
+        if not HAS_PIL:
+            return
+        if self._current_litho_mode() != "single" and not HAS_NUMPY:
             return
         timer = getattr(self, "_preview_refresh_timer", None)
         if timer is None:
@@ -4098,16 +4196,19 @@ class LithoWindow(QMainWindow):
             panel.clear()
             self._update_setting_warnings()
             return
-        active = [hx for hx, on in self.color_vars.items() if on]
-        if not active:
-            panel.set_preview(None, "")
-            panel.set_empty_text("Enable some filaments to see the print preview")
-            self._update_setting_warnings()
-            return
         try:
-            result = self._build_color_preview(active)
+            if self._current_litho_mode() == "single":
+                result = self._build_single_color_preview()
+            else:
+                active = [hx for hx, on in self.color_vars.items() if on]
+                if not active:
+                    panel.set_preview(None, "")
+                    panel.set_empty_text("Enable some filaments to see the print preview")
+                    self._update_setting_warnings()
+                    return
+                result = self._build_color_preview(active)
         except Exception as exc:
-            self._log(f"Color preview refresh failed: {exc}\n", "err")
+            self._log(f"Preview refresh failed: {exc}\n", "err")
             return
         if result is None:
             self._update_setting_warnings()
@@ -4210,6 +4311,74 @@ class LithoWindow(QMainWindow):
         meta += "  ·  capped" if self._last_preview_capped else "  ·  full preview"
         return pix, meta
 
+    def _build_single_color_preview(self):
+        """Build a grayscale texture preview for single-color lithophanes."""
+        try:
+            out_w_mm = float(self._width_mm.strip())
+            out_h_mm = float(self._height_mm.strip() or "0")
+            texture_px = float(self._tex_px_w.strip())
+            border_mm = float(self._border_mm.strip() or "0")
+        except ValueError:
+            self._log("Invalid numeric value in dimensions / texture pixel / border.\n", "err")
+            return None
+        if out_w_mm <= 0 or texture_px <= 0:
+            return None
+
+        with Image.open(self._image_path) as src:
+            img = src.convert("RGB")
+        if self._rotation != 0:
+            img = img.rotate(-self._rotation, expand=True)
+        img = self._apply_adjustments(img)
+        crop = self._canvas.crop()
+        if crop and self._image_size:
+            cx, cy, cw, ch = crop
+            img = img.crop((
+                int(round(cx)), int(round(cy)),
+                int(round(cx + cw)), int(round(cy + ch)),
+            ))
+        if border_mm > 0:
+            img = _apply_source_border(img, border_mm, out_w_mm, (0, 0, 0))
+
+        iw, ih = img.size
+        grid_w = max(1, int(out_w_mm / texture_px))
+        if out_h_mm <= 0:
+            derived_h_mm = int(ih * out_w_mm / iw) if iw else int(out_w_mm)
+            grid_h = max(1, int(derived_h_mm / texture_px))
+            shown_h_mm = derived_h_mm
+        else:
+            grid_h = max(1, int(out_h_mm / texture_px))
+            shown_h_mm = out_h_mm
+
+        requested_w, requested_h = grid_w, grid_h
+        cap = max(1, int(getattr(self, "_preview_cell_cap", _PREVIEW_MAX_GRID_CELLS)))
+        if grid_w * grid_h > cap:
+            scale = (cap / (grid_w * grid_h)) ** 0.5
+            grid_w = max(1, int(grid_w * scale))
+            grid_h = max(1, int(grid_h * scale))
+            self._last_preview_capped = True
+            self._last_preview_requested = (requested_w, requested_h)
+            self._last_preview_actual = (grid_w, grid_h)
+        else:
+            self._last_preview_capped = False
+            self._last_preview_requested = (requested_w, requested_h)
+            self._last_preview_actual = (grid_w, grid_h)
+
+        gray = img.convert("L").resize((grid_w, grid_h), Image.NEAREST).convert("RGB")
+        data = gray.tobytes("raw", "RGB")
+        qimg = QImage(data, gray.width, gray.height, gray.width * 3,
+                      QImage.Format.Format_RGB888)
+        pix = QPixmap.fromImage(qimg.copy())
+
+        w_str = f"{out_w_mm:g}"
+        h_str = f"{shown_h_mm:g}"
+        filament = self._active_filament_label() or "selected filament"
+        meta = (
+            f"{w_str} x {h_str} mm  |  "
+            f"{gray.width} x {gray.height} cells  |  single color: {filament}"
+        )
+        meta += "  |  capped" if self._last_preview_capped else "  |  full preview"
+        return pix, meta
+
     def _refresh_border_preview(self) -> None:
         if getattr(self, "_canvas", None):
             self._canvas.set_border_preview(0, 0, 0)
@@ -4265,7 +4434,13 @@ class LithoWindow(QMainWindow):
         except (ValueError, TypeError):
             self._stat_labels["z"].setText("Z: —")
             return
-        z_mm = (backing + colors + tex_max) * thick
+        color_out, texture_out = self._output_flags()
+        layer_total = 0
+        if color_out:
+            layer_total += backing + colors
+        if texture_out:
+            layer_total += tex_max
+        z_mm = layer_total * thick
         self._stat_labels["z"].setText(f"Z: {z_mm:.2f} mm")
 
     def _effective_height_mm(self) -> float:
@@ -4296,12 +4471,56 @@ class LithoWindow(QMainWindow):
         if value:
             cmd.extend([flag, value])
 
+    def _write_single_color_engine_palette(self, tmp_paths: list) -> str:
+        """Write a temp palette that satisfies the JAR's white requirement.
+
+        PIXEstL still validates the active palette before honoring `-z false`.
+        It requires active `#FFFFFF` plus at least one measured non-white color.
+        The selected single-color filament is a print/material choice in the UI;
+        the texture mesh itself is generated through White internally.
+        """
+        if "#FFFFFF" not in self.palette_data:
+            raise RuntimeError("Single-color mode requires #FFFFFF in the palette.")
+        engine_palette = copy.deepcopy(self.palette_data)
+        selected = self._single_color_hex
+        selected_info = engine_palette.get(selected, {}) or {}
+        support_hex = ""
+        if (
+            selected.upper() != "#FFFFFF"
+            and isinstance(selected_info.get("layers"), dict)
+            and selected_info.get("layers")
+        ):
+            support_hex = selected
+        if not support_hex:
+            for hx, info in engine_palette.items():
+                if hx.upper() == "#FFFFFF" or not isinstance(info, dict):
+                    continue
+                layers = info.get("layers")
+                if isinstance(layers, dict) and layers:
+                    support_hex = hx
+                    break
+        if not support_hex:
+            raise RuntimeError(
+                "Single-color mode requires at least one measured non-white palette entry."
+            )
+        for hx, info in engine_palette.items():
+            if isinstance(info, dict):
+                info["active"] = hx.upper() == "#FFFFFF" or hx == support_hex
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".json", mode="w", encoding="utf-8", delete=False
+        )
+        with tmp:
+            json.dump(engine_palette, tmp, indent=2, ensure_ascii=False)
+        tmp_paths.append(tmp.name)
+        return tmp.name
+
     def _build_jar_cmd(self, src_path: str, out_path: str,
-                       color: bool, texture: bool) -> list:
+                       color: bool, texture: bool,
+                       palette_path: str | None = None) -> list:
         _thick, plate_mm, tmin_mm, tmax_mm = self._generation_thicknesses()
         cmd = [
             "java", "-jar", JAR_PATH,
-            "-p", self._palette_path,
+            "-p", palette_path or self._palette_path,
             "-w", self._width_mm.strip(),
         ]
         h_mm = self._height_mm.strip()
@@ -4495,7 +4714,10 @@ class LithoWindow(QMainWindow):
                 muted=(section == "flat"),
             )
             if section == "flat":
-                row.setToolTip("Ignored in ADDITIVE mode because it has no measured layer data.")
+                row.setToolTip(
+                    "Available for single-color lithos; ignored in ADDITIVE mode "
+                    "because it has no measured layer data."
+                )
             row.toggled.connect(self._on_filament_toggled)
             row.edit_requested.connect(self._open_color_editor)
             self._filament_rows[hex_code] = row
@@ -4521,32 +4743,119 @@ class LithoWindow(QMainWindow):
             for hex_code, info in flat:
                 _make_row(hex_code, info, "flat")
 
-        count = len(self.color_vars)
-        active_count = sum(1 for v in self.color_vars.values() if v)
-        self._filament_count_lbl.setText(f"{active_count} / {count} active")
+        self._update_filament_count_label()
+        if self._current_litho_mode() == "single":
+            self._apply_single_filament_lock()
+        self._sync_filament_controls()
         self._apply_hex_only_visibility()
         self._schedule_color_preview_refresh(delay_ms=50)
         self._update_setting_warnings()
 
+    def _single_filament_choice(self, preferred_hex: str | None = None) -> str:
+        if preferred_hex in self.color_vars:
+            return preferred_hex
+        active = [hx for hx, on in self.color_vars.items() if on]
+        if len(active) == 1:
+            return active[0]
+        if self._single_color_hex in active:
+            return self._single_color_hex
+        if "#FFFFFF" in active:
+            return "#FFFFFF"
+        if active:
+            return active[0]
+        if self._single_color_hex in self.color_vars:
+            return self._single_color_hex
+        if "#FFFFFF" in self.color_vars:
+            return "#FFFFFF"
+        return next(iter(self.color_vars), "")
+
+    def _apply_single_filament_lock(self, preferred_hex: str | None = None) -> str:
+        chosen = self._single_filament_choice(preferred_hex)
+        if not chosen:
+            self._update_filament_count_label()
+            return ""
+        self._single_color_hex = chosen
+        for hx, row in self._filament_rows.items():
+            active = hx == chosen
+            self.color_vars[hx] = active
+            row.setChecked(active)
+        self._update_filament_count_label()
+        return chosen
+
+    def _restore_color_filament_state(self) -> None:
+        for hx, row in self._filament_rows.items():
+            info = self.palette_data.get(hx, {}) or {}
+            active = bool(info.get("active", True))
+            self.color_vars[hx] = active
+            row.setChecked(active)
+        self._update_filament_count_label()
+
+    def _active_filament_label(self) -> str:
+        selected = next((hx for hx, on in self.color_vars.items() if on), "")
+        if not selected:
+            return ""
+        info = self.palette_data.get(selected, {}) or {}
+        name = info.get("name") or selected
+        return re.sub(r"\[[^\]]+\]$", "", name).strip() or name
+
+    def _update_filament_count_label(self) -> None:
+        label = getattr(self, "_filament_count_lbl", None)
+        if label is None:
+            return
+        count = len(self.color_vars)
+        active_count = sum(1 for v in self.color_vars.values() if v)
+        if self._current_litho_mode() == "single":
+            label.setText(f"{active_count} / {count} selected")
+        else:
+            label.setText(f"{active_count} / {count} active")
+
+    def _sync_filament_controls(self) -> None:
+        single = self._current_litho_mode() == "single"
+        tip = "Single-color mode locks the palette to one selected filament."
+        for btn in (getattr(self, "_all_on_btn", None), getattr(self, "_all_off_btn", None)):
+            if btn is not None:
+                btn.setEnabled(not single)
+                btn.setToolTip(tip if single else "")
+        hex_btn = getattr(self, "_hex_only_btn", None)
+        if hex_btn is not None:
+            hex_btn.setEnabled(not single)
+            if single:
+                hex_btn.setText("All filaments shown")
+                hex_btn.setToolTip("Single-color mode can use measured or hex-only filaments.")
+            else:
+                hex_btn.setText(
+                    "Hide hex-only filaments" if hex_btn.isChecked()
+                    else "Show hex-only filaments"
+                )
+                hex_btn.setToolTip(
+                    "Hex-only palette entries are ignored by ADDITIVE mode unless they have measured layer data."
+                )
+
     def _on_filament_toggled(self, hex_code: str, active: bool) -> None:
+        if self._current_litho_mode() == "single":
+            self._apply_single_filament_lock(hex_code)
+            self._schedule_color_preview_refresh()
+            self._update_setting_warnings()
+            return
         self.color_vars[hex_code] = active
         if hex_code in self.palette_data:
             self.palette_data[hex_code]["active"] = active
-        count = len(self.color_vars)
-        active_count = sum(1 for v in self.color_vars.values() if v)
-        self._filament_count_lbl.setText(f"{active_count} / {count} active")
+        self._update_filament_count_label()
         self._schedule_color_preview_refresh()
         self._update_setting_warnings()
 
     def _set_all(self, state: bool) -> None:
+        if self._current_litho_mode() == "single":
+            self._apply_single_filament_lock()
+            self._schedule_color_preview_refresh()
+            self._update_setting_warnings()
+            return
         for hx, row in self._filament_rows.items():
             row.setChecked(state)
             self.color_vars[hx] = state
             if hx in self.palette_data:
                 self.palette_data[hx]["active"] = state
-        count = len(self.color_vars)
-        active_count = sum(1 for v in self.color_vars.values() if v)
-        self._filament_count_lbl.setText(f"{active_count} / {count} active")
+        self._update_filament_count_label()
         self._schedule_color_preview_refresh()
         self._update_setting_warnings()
 
@@ -4561,18 +4870,19 @@ class LithoWindow(QMainWindow):
     def _apply_hex_only_visibility(self) -> None:
         text = getattr(self, "_filter_input", None)
         filter_text = text.text().lower() if text is not None else ""
+        single = self._current_litho_mode() == "single"
         section_visible_count = {"measured": 0, "flat": 0}
         for hx, row in self._filament_rows.items():
             section = self._filament_row_section.get(hx)
             info = self.palette_data.get(hx, {})
             name = info.get("name", hx).lower()
             matches_filter = (not filter_text) or filter_text in name or filter_text in hx.lower()
-            visible = matches_filter and (section != "flat" or self._show_hex_only)
+            visible = matches_filter and (single or section != "flat" or self._show_hex_only)
             row.setVisible(visible)
             if visible and section in section_visible_count:
                 section_visible_count[section] += 1
         for section, hdr in self._filament_section_headers.items():
-            if section == "flat" and not self._show_hex_only:
+            if section == "flat" and not single and not self._show_hex_only:
                 hdr.setVisible(False)
             else:
                 hdr.setVisible(section_visible_count.get(section, 0) > 0)
@@ -4625,6 +4935,10 @@ class LithoWindow(QMainWindow):
         else:
             self.palette_data[hex_code] = new_info
         self._rebuild_filament_list()
+        if self._current_litho_mode() == "single":
+            self._apply_single_filament_lock(new_hex)
+            self._apply_hex_only_visibility()
+            self._schedule_color_preview_refresh(delay_ms=50)
 
     def _add_new_color(self) -> None:
         default = {"name": "New Color[PLA Basic]", "active": True, "layers": {}}
@@ -4633,8 +4947,15 @@ class LithoWindow(QMainWindow):
             return
         new_hex, new_info = dlg.get_result()
         if new_hex and new_info:
+            if self._current_litho_mode() == "single":
+                new_info = dict(new_info)
+                new_info["active"] = False
             self.palette_data[new_hex] = new_info
             self._rebuild_filament_list()
+            if self._current_litho_mode() == "single":
+                self._apply_single_filament_lock(new_hex)
+                self._apply_hex_only_visibility()
+                self._schedule_color_preview_refresh(delay_ms=50)
 
     # ── Run ───────────────────────────────────────────────────────────────────
     def _generate_stl(self) -> None:
@@ -4740,6 +5061,20 @@ class LithoWindow(QMainWindow):
                     )
 
                 color_out, texture_out = self._output_flags()
+                palette_path = self._palette_path
+                if not color_out and texture_out:
+                    palette_path = self._write_single_color_engine_palette(tmp_paths)
+                if color_out and texture_out:
+                    self._log("Litho mode: color (-z true, -Z true).\n", "dim")
+                elif texture_out:
+                    filament = self._active_filament_label() or "selected filament"
+                    self._log(
+                        f"Litho mode: single color ({filament}; texture only, "
+                        "32 x 0.10 mm = 3.20 mm).\n",
+                        "dim",
+                    )
+                elif color_out:
+                    self._log("Litho mode: color only (-z true, -Z false).\n", "dim")
 
                 def _run(cmd: list) -> int:
                     self._log(f"\n$ {subprocess.list2cmdline(cmd)}\n", "dim")
@@ -4782,14 +5117,16 @@ class LithoWindow(QMainWindow):
                     # from the white-border pass and texture from the
                     # black-border pass.
                     rc = _run(self._build_jar_cmd(color_src, color_zip.name,
-                                                  color=True, texture=True))
+                                                  color=True, texture=True,
+                                                  palette_path=palette_path))
                     if rc != 0:
                         self._log(f"\nColor pass exited with code {rc}\n", "err")
                         QMetaObject.invokeMethod(self, "_on_run_done_err",
                                                  Qt.ConnectionType.QueuedConnection)
                         return
                     rc = _run(self._build_jar_cmd(tex_src, tex_zip.name,
-                                                  color=True, texture=True))
+                                                  color=True, texture=True,
+                                                  palette_path=palette_path))
                     if rc != 0:
                         self._log(f"\nTexture pass exited with code {rc}\n", "err")
                         QMetaObject.invokeMethod(self, "_on_run_done_err",
@@ -4823,7 +5160,8 @@ class LithoWindow(QMainWindow):
                         border_rgb = (255, 255, 255) if color_out else (0, 0, 0)
                     src = _bake_input(border_rgb)
                     rc = _run(self._build_jar_cmd(
-                        src, out_zip, color=color_out, texture=texture_out
+                        src, out_zip, color=color_out, texture=texture_out,
+                        palette_path=palette_path
                     ))
 
                 if rc == 0:
@@ -4873,8 +5211,22 @@ class LithoWindow(QMainWindow):
         instructions.txt so the user has print parameters alongside the
         swap mapping (no completion popup)."""
         path = os.path.join(extract_dir, "instructions.txt")
+        color_out, texture_out = self._output_flags()
+        if color_out and texture_out:
+            mode_line = "  Litho mode -> Color (-z true, -Z true)\n"
+        elif texture_out:
+            filament = self._active_filament_label() or "selected filament"
+            mode_line = (
+                f"  Litho mode -> Single color: {filament} "
+                "(texture only, 32 x 0.10 mm = 3.20 mm)\n"
+            )
+        elif color_out:
+            mode_line = "  Litho mode -> Color only (-z true, -Z false)\n"
+        else:
+            mode_line = "  Litho mode -> Custom\n"
         note = (
             "\n\nRecommended print settings\n"
+            f"{mode_line}"
             "  0.4 mm nozzle  ->  0.1 mm layer height\n"
             "  0.2 mm nozzle  ->  0.1 mm layer height\n"
         )
@@ -4971,6 +5323,10 @@ class LithoWindow(QMainWindow):
             except (ValueError, TypeError):
                 self._log("Skipping .3mf: invalid numeric settings.\n", "warn")
                 return
+            color_out, _texture_out = self._output_flags()
+            if not color_out:
+                backing = 0
+                colors = 0
             bambu_3mf.build_3mf(
                 out_path=out_3mf,
                 parts=parts,
