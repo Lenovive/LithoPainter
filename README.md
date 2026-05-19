@@ -61,11 +61,8 @@ Lithopainter.bat
 3. Pick a frame size or enter exact dimensions.
 4. Pick a print profile and quality.
 5. Enable the filaments you want.
-6. Use `Preflight` to inspect the planned JAR command, active measured
-   filaments, ignored hex-only filaments, estimated grids, white status, and
-   expected Bambu slot mapping.
-7. Generate the STL ZIP.
-8. Open the extracted folder or generated `.3mf`.
+6. Generate the STL ZIP.
+7. Open the extracted folder.
 
 ## Print Profiles
 

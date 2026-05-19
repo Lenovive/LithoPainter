@@ -712,6 +712,100 @@ class PanelHead(QWidget):
         p.end()
 
 
+class DrawerTab(QWidget):
+    """Vertical drawer-handle tab. Sits between a side pane and the center
+    canvas, stays visible when the pane is collapsed, click toggles."""
+
+    clicked = Signal()
+
+    def __init__(self, label: str, side: str, parent=None):
+        super().__init__(parent)
+        if side not in ("left", "right"):
+            raise ValueError(f"side must be 'left' or 'right', got {side!r}")
+        self._label = label
+        self._side = side
+        self._open = True
+        self._hover = False
+        self.setFixedWidth(22)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self.setToolTip(f"Show or hide the {label.lower()} pane")
+        _on_theme(lambda: self.update())
+
+    def set_open(self, is_open: bool) -> None:
+        if self._open == is_open:
+            return
+        self._open = is_open
+        self.update()
+
+    def is_open(self) -> bool:
+        return self._open
+
+    def enterEvent(self, e):
+        self._hover = True
+        self.update()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self._hover = False
+        self.update()
+        super().leaveEvent(e)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(e)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        if self._open:
+            bg = QColor(T["selected"])
+            fg = QColor(T["ink"])
+        elif self._hover:
+            bg = QColor(T["hover"])
+            fg = QColor(T["ink_2"])
+        else:
+            bg = QColor(T["panel_2"])
+            fg = QColor(T["mid"])
+
+        p.fillRect(self.rect(), bg)
+        p.setPen(QPen(QColor(T["line"]), 1))
+        if self._side == "left":
+            p.drawLine(self.width() - 1, 0, self.width() - 1, self.height())
+        else:
+            p.drawLine(0, 0, 0, self.height())
+
+        if self._side == "left":
+            arrow = "◀" if self._open else "▶"
+        else:
+            arrow = "▶" if self._open else "◀"
+
+        p.setPen(QPen(fg))
+        f = _uf(11, 600)
+        p.setFont(f)
+        fm = QFontMetrics(f)
+        label_text = self._label.upper()
+        text_w = fm.horizontalAdvance(label_text)
+        arrow_w = fm.horizontalAdvance(arrow)
+        gap = 8
+        total = text_w + gap + arrow_w
+
+        p.save()
+        p.translate(self.width() / 2, self.height() / 2)
+        if self._side == "left":
+            p.rotate(-90)
+        else:
+            p.rotate(90)
+        x = -total / 2
+        baseline = fm.ascent() - (fm.ascent() + fm.descent()) / 2
+        p.drawText(QPoint(int(x), int(baseline)), arrow)
+        p.drawText(QPoint(int(x + arrow_w + gap), int(baseline)), label_text)
+        p.restore()
+        p.end()
+
+
 class SourceCard(QWidget):
     browse_clicked = Signal()
 
@@ -2021,16 +2115,9 @@ class StatusPill(QWidget):
 
 # ── Presets & Layer heights ───────────────────────────────────────────────────
 PRESETS = [
-    ("bambu_frame",  "Bambu Frame", "108 × 144 mm", 108, 144),
-    ("bambu_s",      "Bambu S",     "85 × 113 mm",   85, 113),
-    ("bambu_m",      "Bambu M",     "100 × 150 mm", 100, 150),
-    ("bambu_l",      "Bambu L",     "130 × 180 mm", 130, 180),
-    ("4x6",          "4×6 Photo",   "102 × 152 mm", 102, 152),
-    ("5x7",          "5×7 Photo",   "127 × 178 mm", 127, 178),
-    ("a5",           "A5",          "148 × 210 mm", 148, 210),
-    ("a4",           "A4",          "210 × 297 mm", 210, 297),
-    ("sq100",        "Square 100",  "100 × 100 mm", 100, 100),
-    ("sq130",        "Square 130",  "130 × 130 mm", 130, 130),
+    ("bambu_frame", "Bambu Frame", "108 × 144 mm", 108, 144),
+    ("mini",        "Mini",        "54 × 72 mm",    54,  72),
+    ("ultra_mini",  "Ultra Mini",  "27 × 36 mm",    27,  36),
 ]
 
 LAYER_HEIGHTS = [
@@ -2047,47 +2134,12 @@ QUALITY_PRESETS = [
 ]
 
 PRINT_PROFILES = [
-    ("litho", "Litho", "detail", {
+    ("litho", "High Quality Lithophane", "", {
         "quality": "balanced", "layer_height": "0.10", "color_px": "0.20",
         "tex_px": "0.20", "layers": "5", "backing": "2", "tex_min": "3",
         "tex_max": "15", "fine_layer": "0.04", "border": "2",
         "pixel_mode": "ADDITIVE", "output_mode": "both", "color_number": "",
         "distance": "CIELab", "curve": "",
-    }),
-    ("jar_02", "JAR", "0.2", {
-        "quality": "", "layer_height": "0.10", "color_px": "0.80",
-        "tex_px": "0.25", "layers": "5", "backing": "2", "tex_min": "3",
-        "tex_max": "18", "fine_layer": "0.10", "border": "0",
-        "pixel_mode": "ADDITIVE", "output_mode": "both", "color_number": "",
-        "distance": "CIELab", "curve": "",
-    }),
-    ("nozzle_04", "0.4", "nozzle", {
-        "quality": "", "layer_height": "0.12", "color_px": "0.80",
-        "tex_px": "0.25", "layers": "5", "backing": "2", "tex_min": "3",
-        "tex_max": "15", "fine_layer": "0.12", "border": "0",
-        "pixel_mode": "ADDITIVE", "output_mode": "both", "color_number": "",
-        "distance": "CIELab", "curve": "",
-    }),
-    ("texture_only", "Tex", "only", {
-        "quality": "balanced", "layer_height": "0.10", "color_px": "0.20",
-        "tex_px": "0.20", "layers": "5", "backing": "2", "tex_min": "3",
-        "tex_max": "30", "fine_layer": "0.04", "border": "0",
-        "pixel_mode": "ADDITIVE", "output_mode": "texture_only",
-        "color_number": "", "distance": "CIELab", "curve": "",
-    }),
-    ("pixel_art", "Pixel", "FULL", {
-        "quality": "", "layer_height": "0.10", "color_px": "2.00",
-        "tex_px": "0.25", "layers": "2", "backing": "10", "tex_min": "0",
-        "tex_max": "0", "fine_layer": "0.10", "border": "0",
-        "pixel_mode": "FULL", "output_mode": "color_only",
-        "color_number": "8", "distance": "RGB", "curve": "",
-    }),
-    ("ams_7", "1 AMS", "7 col", {
-        "quality": "balanced", "layer_height": "0.10", "color_px": "0.20",
-        "tex_px": "0.20", "layers": "4", "backing": "2", "tex_min": "3",
-        "tex_max": "17", "fine_layer": "0.04", "border": "2",
-        "pixel_mode": "ADDITIVE", "output_mode": "both",
-        "color_number": "4", "distance": "CIELab", "curve": "",
     }),
 ]
 
@@ -2139,7 +2191,6 @@ class LithoWindow(QMainWindow):
         self._width_mm:  str = "108"
         self._height_mm: str = "144"
         self._lock_ratio: bool = False
-        self._export_name: str = ""
         self._color_px_w:  str = "0.2"
         self._tex_px_w:    str = "0.2"
         self._layer_thick:    str = "0.10"
@@ -2234,10 +2285,39 @@ class LithoWindow(QMainWindow):
         self._left_pane = left
         self._right_pane = right
 
-        vlay.addWidget(splitter, 1)
+        self._left_tab = DrawerTab("Settings", side="left")
+        self._left_tab.clicked.connect(self._toggle_left_pane)
+        self._right_tab = DrawerTab("Filaments", side="right")
+        self._right_tab.clicked.connect(self._toggle_right_pane)
+
+        mid_row = QWidget()
+        mid_row.setStyleSheet(f"background: {T['bg']};")
+        _on_theme(lambda w=mid_row: w.setStyleSheet(f"background: {T['bg']};"))
+        mid_lay = QHBoxLayout(mid_row)
+        mid_lay.setContentsMargins(0, 0, 0, 0)
+        mid_lay.setSpacing(0)
+        mid_lay.addWidget(self._left_tab)
+        mid_lay.addWidget(splitter, 1)
+        mid_lay.addWidget(self._right_tab)
+
+        vlay.addWidget(mid_row, 1)
         vlay.addWidget(_hline())
         vlay.addWidget(self._build_footer())
         QTimer.singleShot(0, self._restore_main_splitter_state)
+
+    def _toggle_left_pane(self) -> None:
+        splitter = getattr(self, "_main_splitter", None)
+        if splitter is None:
+            return
+        sizes = splitter.sizes()
+        self._set_side_pane_visible("left", not (len(sizes) >= 1 and sizes[0] > 0))
+
+    def _toggle_right_pane(self) -> None:
+        splitter = getattr(self, "_main_splitter", None)
+        if splitter is None:
+            return
+        sizes = splitter.sizes()
+        self._set_side_pane_visible("right", not (len(sizes) >= 3 and sizes[2] > 0))
 
     def _build_topbar(self) -> QWidget:
         bar = QWidget()
@@ -2266,25 +2346,6 @@ class LithoWindow(QMainWindow):
 
         self._status_pill = StatusPill("Ready")
         lay.addWidget(self._status_pill)
-
-        pane_toggles = QWidget()
-        pane_toggles.setStyleSheet("background: transparent;")
-        pane_lay = QHBoxLayout(pane_toggles)
-        pane_lay.setContentsMargins(0, 0, 0, 0)
-        pane_lay.setSpacing(6)
-        self._left_pane_btn = self._make_pane_toggle(
-            "Settings",
-            "Show or hide the source and print settings pane",
-            "left",
-        )
-        self._right_pane_btn = self._make_pane_toggle(
-            "Filaments",
-            "Show or hide the filament palette pane",
-            "right",
-        )
-        pane_lay.addWidget(self._left_pane_btn)
-        pane_lay.addWidget(self._right_pane_btn)
-        lay.addWidget(pane_toggles)
 
         lay.addStretch()
 
@@ -2351,43 +2412,6 @@ class LithoWindow(QMainWindow):
                 background: {T['dim']};
             }}
         """
-
-    def _pane_toggle_qss(self) -> str:
-        return f"""
-            QPushButton {{
-                background: {T['panel_2']};
-                border: 1px solid {T['line']};
-                border-radius: 6px;
-                padding: 0 10px;
-                color: {T['mid']};
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            QPushButton:hover {{
-                background: {T['hover']};
-                color: {T['ink_2']};
-            }}
-            QPushButton:checked {{
-                background: {T['selected']};
-                border-color: {T['ink_2']};
-                color: {T['ink']};
-            }}
-            QPushButton:checked:hover {{
-                background: {T['selected']};
-            }}
-        """
-
-    def _make_pane_toggle(self, text: str, tooltip: str, side: str) -> QPushButton:
-        btn = QPushButton(text)
-        btn.setCheckable(True)
-        btn.setChecked(True)
-        btn.setFixedHeight(30)
-        btn.setFont(_uf(12, 500))
-        btn.setToolTip(tooltip)
-        btn.setStyleSheet(self._pane_toggle_qss())
-        btn.clicked.connect(lambda checked, s=side: self._set_side_pane_visible(s, checked))
-        _on_theme(lambda b=btn: b.setStyleSheet(self._pane_toggle_qss()))
-        return btn
 
     def _settings_bool(self, key: str, default: bool) -> bool:
         value = _settings.value(key, default)
@@ -2511,15 +2535,12 @@ class LithoWindow(QMainWindow):
         sizes = splitter.sizes()
         if len(sizes) != 3:
             return
-        for btn, visible in (
-            (getattr(self, "_left_pane_btn", None), sizes[0] > 0),
-            (getattr(self, "_right_pane_btn", None), sizes[2] > 0),
-        ):
-            if btn is None:
-                continue
-            btn.blockSignals(True)
-            btn.setChecked(visible)
-            btn.blockSignals(False)
+        left_tab = getattr(self, "_left_tab", None)
+        if left_tab is not None:
+            left_tab.set_open(sizes[0] > 0)
+        right_tab = getattr(self, "_right_tab", None)
+        if right_tab is not None:
+            right_tab.set_open(sizes[2] > 0)
 
     def _build_left(self) -> QWidget:
         col = QWidget()
@@ -2530,7 +2551,7 @@ class LithoWindow(QMainWindow):
         vlay.setSpacing(0)
 
         # Source head
-        vlay.addWidget(PanelHead("Source"))
+        vlay.addWidget(PanelHead("Settings"))
 
         # Source card
         self._source_card = SourceCard()
@@ -2747,39 +2768,6 @@ class LithoWindow(QMainWindow):
         _on_theme(lambda: head.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
         vlay.addWidget(head)
 
-        # Palette JSON
-        pal_lbl = QLabel("Palette JSON")
-        pal_lbl.setFont(_uf(11))
-        pal_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
-        _on_theme(lambda: pal_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
-        vlay.addWidget(pal_lbl)
-
-        pal_row = QHBoxLayout()
-        pal_row.setSpacing(6)
-        self._palette_input = QLineEdit(self._palette_path)
-        self._palette_input.setFont(_mf(10))
-        self._palette_input.setFixedHeight(32)
-        self._palette_input.textChanged.connect(lambda v: setattr(self, "_palette_path", v))
-        pal_row.addWidget(self._palette_input)
-        pal_browse = QPushButton("…")
-        pal_browse.setFixedSize(32, 32)
-        pal_browse.clicked.connect(self._browse_palette)
-        pal_row.addWidget(pal_browse)
-        vlay.addLayout(pal_row)
-
-        # Export name
-        en_lbl = QLabel("Export name")
-        en_lbl.setFont(_uf(11))
-        en_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
-        _on_theme(lambda: en_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
-        vlay.addWidget(en_lbl)
-        self._export_name_input = QLineEdit(self._export_name)
-        self._export_name_input.setFont(_mf(11))
-        self._export_name_input.setFixedHeight(32)
-        self._export_name_input.setPlaceholderText("(auto from image name)")
-        self._export_name_input.textChanged.connect(lambda v: setattr(self, "_export_name", v))
-        vlay.addWidget(self._export_name_input)
-
         # Layer height chips
         lh_lbl = QLabel("Layer height")
         lh_lbl.setFont(_uf(11))
@@ -2822,22 +2810,12 @@ class LithoWindow(QMainWindow):
         head_row.addWidget(reset_btn)
         vlay.addLayout(head_row)
 
-        profile_lbl = QLabel("Profile")
-        profile_lbl.setFont(_uf(11))
-        profile_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
-        _on_theme(lambda: profile_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
-        vlay.addWidget(profile_lbl)
-
-        profile_grid = QGridLayout()
-        profile_grid.setSpacing(6)
         self._profile_chips: dict = {}
-        for i, (key, label, hint, _settings) in enumerate(PRINT_PROFILES):
-            chip = LayerChip(key, label, hint)
-            chip.setActive(key == self._active_print_profile)
-            chip.selected.connect(self._apply_print_profile)
-            self._profile_chips[key] = chip
-            profile_grid.addWidget(chip, i // 3, i % 3)
-        vlay.addLayout(profile_grid)
+        profile_lbl = QLabel("Profile:  High Quality Lithophane")
+        profile_lbl.setFont(_uf(11))
+        profile_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;")
+        _on_theme(lambda: profile_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
+        vlay.addWidget(profile_lbl)
 
         quality_lbl = QLabel("Quality")
         quality_lbl.setFont(_uf(11))
@@ -3313,12 +3291,6 @@ class LithoWindow(QMainWindow):
         open_btn.clicked.connect(self._open_output_folder)
         lay.addWidget(open_btn)
 
-        preflight_btn = QPushButton("Preflight")
-        preflight_btn.setFont(_uf(12, 500))
-        preflight_btn.setFixedHeight(36)
-        preflight_btn.clicked.connect(self._show_preflight)
-        lay.addWidget(preflight_btn)
-
         help_btn = QPushButton("Engine help")
         help_btn.setFont(_uf(12, 500))
         help_btn.setFixedHeight(36)
@@ -3448,25 +3420,11 @@ class LithoWindow(QMainWindow):
         self._image_path = path
         self._rotation = 0
         self._load_image(path)
-        if not self._export_name:
-            base = os.path.splitext(os.path.basename(path))[0]
-            self._export_name = base
-            self._export_name_input.setText(base)
         self._run_btn.setEnabled(True)
         if hasattr(self, "_gen_btn_top"):
             self._gen_btn_top.setEnabled(True)
         self._refresh_border_preview()
         self._schedule_color_preview_refresh(delay_ms=50)
-
-    def _browse_palette(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Palette JSON", "",
-            "JSON files (*.json);;All files (*.*)"
-        )
-        if path:
-            self._palette_path = path
-            self._palette_input.setText(path)
-            self._load_palette()
 
     def _load_image(self, path: str) -> None:
         if HAS_PIL:
@@ -4143,26 +4101,6 @@ class LithoWindow(QMainWindow):
         ]
         return cmd
 
-    def _active_palette_groups(self) -> tuple[list[tuple[str, dict]], list[tuple[str, dict]]]:
-        usable = []
-        ignored = []
-        for hx, active in self.color_vars.items():
-            if not active:
-                continue
-            info = self.palette_data.get(hx, {}) or {}
-            layers = info.get("layers")
-            if isinstance(layers, dict) and layers:
-                usable.append((hx, info))
-            else:
-                ignored.append((hx, info))
-        return usable, ignored
-
-    def _planned_output_zip(self) -> str:
-        img = self._image_path.strip()
-        custom_name = self._export_name.strip()
-        img_name = custom_name if custom_name else os.path.splitext(os.path.basename(img or "output"))[0]
-        return os.path.join(self.output_dir, img_name + ".zip")
-
     def _show_text_dialog(self, title: str, text: str) -> None:
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
@@ -4182,92 +4120,6 @@ class LithoWindow(QMainWindow):
         btn_row.addWidget(close_btn)
         lay.addLayout(btn_row)
         dlg.exec()
-
-    def _build_preflight_text(self) -> str:
-        color, texture = self._output_flags()
-        src = self._image_path.strip() or "<input-image>"
-        if self._input_will_be_baked():
-            src = "<temporary preprocessed PNG>"
-        out_zip = self._planned_output_zip()
-        try:
-            cmd = self._build_jar_cmd(src, out_zip, color, texture)
-            command_text = subprocess.list2cmdline(cmd)
-        except Exception as exc:
-            command_text = f"Cannot build command: {exc}"
-
-        usable, ignored = self._active_palette_groups()
-        active_lines = [
-            f"  - {info.get('name', hx)} ({hx})"
-            for hx, info in usable
-        ] or ["  - none"]
-        ignored_lines = [
-            f"  - {info.get('name', hx)} ({hx})"
-            for hx, info in ignored
-        ] or ["  - none"]
-
-        try:
-            w = float(self._width_mm.strip())
-            h = self._effective_height_mm()
-            color_px = float(self._color_px_w.strip())
-            tex_px = float(self._tex_px_w.strip())
-            color_grid = f"{max(1, round(w / color_px))} x {max(1, round(h / color_px))}"
-            tex_grid = f"{max(1, round(w / tex_px))} x {max(1, round(h / tex_px))}"
-        except Exception:
-            color_grid = tex_grid = "invalid numeric settings"
-
-        template_dir = os.path.join(SCRIPT_DIR, "resources", "bambu_template")
-        template_colours = bambu_3mf.read_template_filament_colours(template_dir)
-        mapping = []
-        if texture:
-            mapping.append("  - texture/plate -> AMS slot 1")
-        if color:
-            for hx, info in usable:
-                slot = 0
-                if template_colours and hasattr(bambu_3mf, "_closest_template_slot"):
-                    try:
-                        slot = bambu_3mf._closest_template_slot(hx, template_colours)
-                    except Exception:
-                        slot = 0
-                if slot <= 0:
-                    slot = len(mapping) + 1
-                mapping.append(f"  - {info.get('name', hx)} -> AMS slot {slot}")
-        if not mapping:
-            mapping.append("  - none")
-
-        ams_note = ""
-        if self._color_number.strip() == "4" and len(usable) > 4:
-            ams_note = (
-                "\n1-AMS mode: PIXEstL should write instructions.txt after generation. "
-                "Lithopainter will use source->target swap lines to keep swapped "
-                "filaments on the source AMS slot in the generated .3mf."
-            )
-
-        return (
-            "Planned PIXEstL command\n"
-            f"{command_text}\n\n"
-            "Output\n"
-            f"  ZIP: {out_zip}\n"
-            f"  Mode: {self._output_mode} (-z {str(color).lower()} -Z {str(texture).lower()})\n"
-            f"  Pixel mode: {self._pixel_mode}\n"
-            f"  Color distance: {self._distance_method}\n"
-            f"  Max colors/layer: {self._color_number.strip() or 'none'}\n"
-            f"  Low memory: {'on' if self._low_memory else 'off'}\n\n"
-            "Estimated grids\n"
-            f"  Color grid: {color_grid}\n"
-            f"  Texture grid: {tex_grid}\n\n"
-            "Active measured filaments\n"
-            + "\n".join(active_lines) + "\n\n"
-            "Active hex-only filaments ignored by ADDITIVE color lithophanes\n"
-            + "\n".join(ignored_lines) + "\n\n"
-            "White filament\n"
-            f"  {'active' if self.color_vars.get('#FFFFFF', False) else 'not active'}\n\n"
-            "Expected Bambu mapping\n"
-            + "\n".join(mapping)
-            + ams_note
-        )
-
-    def _show_preflight(self) -> None:
-        self._show_text_dialog("Generation preflight", self._build_preflight_text())
 
     def _show_engine_help(self) -> None:
         cmd = ["java", "-jar", JAR_PATH, "--help"]
@@ -4292,31 +4144,6 @@ class LithoWindow(QMainWindow):
         except Exception as exc:
             text = f"Engine diagnostics failed: {exc}"
         self._show_text_dialog("PIXEstL engine help", text)
-
-    def _input_will_be_baked(self) -> bool:
-        img = self._image_path.strip()
-        ext = os.path.splitext(img)[1].lower()
-        java_supported = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".wbmp"}
-        crop = self._canvas.crop() if hasattr(self, "_canvas") else None
-        needs_crop = False
-        if crop and self._image_size:
-            _cx, _cy, cw, ch = crop
-            iw, ih = self._image_size
-            needs_crop = (abs(cw - iw) > 1 or abs(ch - ih) > 1)
-        needs_adjust = any(
-            v != 0 for v in [
-                self._adj_color_temp, self._adj_tint, self._adj_exposure,
-                self._adj_highlights, self._adj_shadows, self._adj_saturation,
-            ]
-        )
-        try:
-            needs_border = float(self._border_mm.strip() or "0") > 0
-        except ValueError:
-            needs_border = False
-        return (
-            needs_crop or ext not in java_supported or self._rotation != 0
-            or needs_adjust or needs_border
-        )
 
     # ── Crop ──────────────────────────────────────────────────────────────────
     def _target_ratio(self):
@@ -4541,7 +4368,6 @@ class LithoWindow(QMainWindow):
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(self.palette_data, f, indent=2, ensure_ascii=False)
             self._palette_path = path
-            self._palette_input.setText(path)
             self._log(f"Palette saved → {path}\n", "ok")
         except Exception as exc:
             self._log(f"Save failed: {exc}\n", "err")
@@ -4592,8 +4418,7 @@ class LithoWindow(QMainWindow):
 
         self._save_palette()
 
-        custom_name = self._export_name.strip()
-        img_name = custom_name if custom_name else os.path.splitext(os.path.basename(img))[0]
+        img_name = os.path.splitext(os.path.basename(img))[0]
         out_zip  = os.path.join(self.output_dir, img_name + ".zip")
 
         self._log(f"Output will be saved to:\n  {out_zip}\n", "dim")
