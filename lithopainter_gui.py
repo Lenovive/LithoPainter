@@ -2148,17 +2148,17 @@ def _safe_dirname(name: str) -> str:
 
 # ── Main window ───────────────────────────────────────────────────────────────
 class LithoWindow(QMainWindow):
-    _LEFT_PANE_DEFAULT = 230
-    _RIGHT_PANE_DEFAULT = 348
-    _LEFT_PANE_MIN = 200
-    _RIGHT_PANE_MIN = 300
+    _LEFT_PANE_DEFAULT = 340
+    _RIGHT_PANE_DEFAULT = 175
+    _LEFT_PANE_MIN = 260
+    _RIGHT_PANE_MIN = 160
     _CENTER_PANE_MIN = 320
     _DRAWER_TAB_WIDTH = 22
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Litho — Image to 3D STL")
-        self.resize(1280, 820)
+        self.resize(1456, 820)
         self.setMinimumSize(760, 560)
 
         # State
@@ -2278,7 +2278,7 @@ class LithoWindow(QMainWindow):
         splitter.splitterMoved.connect(self._on_main_splitter_moved)
         splitter.setSizes([
             self._LEFT_PANE_DEFAULT,
-            620,
+            941,
             self._RIGHT_PANE_DEFAULT,
         ])
 
