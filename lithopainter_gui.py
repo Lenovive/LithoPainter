@@ -2634,8 +2634,8 @@ class LithoWindow(QMainWindow):
              "-100 green", "0", "+100 magenta", _signed_value),
             ("Exposure", "Overall brightness", "_adj_exposure",
              "-2 EV", "0", "+2 EV", _exposure_value),
-            ("Highlights", "Bright-tone compression", "_adj_highlights",
-             "-100 bright", "0", "+100 recover", _signed_value),
+            ("Highlights", "Bright-tone lift or recover", "_adj_highlights",
+             "-100 recover", "0", "+100 bright", _signed_value),
             ("Shadows", "Dark-tone lift or crush", "_adj_shadows",
              "-100 crush", "0", "+100 lift", _signed_value),
             ("Saturation", "Color intensity", "_adj_saturation",
@@ -3602,7 +3602,7 @@ class LithoWindow(QMainWindow):
         highlights = self._adj_highlights
         if highlights != 0:
             lut = [
-                max(0, min(255, i - int((i - 128) * highlights / 100.0 * 0.5))) if i > 128 else i
+                max(0, min(255, i + int((i - 128) * highlights / 100.0 * 0.5))) if i > 128 else i
                 for i in range(256)
             ]
             img = img.point(lut * 3)
