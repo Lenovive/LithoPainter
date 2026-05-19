@@ -16,27 +16,58 @@ in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 The Python/PySide6 desktop GUI, Bambu `.3mf` exporter, launcher, and local
 documentation are Lithopainter-specific additions around that engine.
 
-## Quick Start
+## Get Started
 
-Run the app from PowerShell or Command Prompt:
+### 1. Install the prerequisites (once per machine)
+
+`Lithopainter.bat` will detect these and tell you which is missing.
+
+- **Python 3.10+** — https://www.python.org/downloads/
+  During install, tick **Add python.exe to PATH**.
+- **Java 17+ runtime** — https://adoptium.net/
+  Needed by the bundled STL generator (`lithopainter.jar`).
+
+### 2. Download Lithopainter
+
+Either clone the repo with git:
 
 ```cmd
-python lithopainter_gui.py
+git clone https://github.com/Lenovive/LithoPainter.git
+cd LithoPainter
 ```
 
-Or double-click:
+Or, if you don't use git, open
+[github.com/Lenovive/LithoPainter](https://github.com/Lenovive/LithoPainter),
+click the green **Code** button, choose **Download ZIP**, and extract the
+folder somewhere you can find it.
+
+### 3. Launch the app
+
+Double-click `Lithopainter.bat`. On first run it will:
+
+1. Verify Python and Java are installed.
+2. Create a local virtual environment in `.venv/`.
+3. Install the Python dependencies from `requirements.txt` (PySide6,
+   Pillow, NumPy).
+4. Launch the GUI.
+
+Later runs skip steps 2 and 3 and open the GUI immediately.
+
+### Manual launch (alternative)
+
+If you'd rather skip the launcher, from PowerShell or Command Prompt in
+the project folder:
 
 ```cmd
-Lithopainter.bat
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python lithopainter_gui.py
 ```
 
-## Requirements
+### Refreshing dependencies
 
-- Python 3.10+
-- PySide6: `pip install PySide6`
-- Java JRE or JDK on `PATH`
-- Pillow: required for crop, border, input conversion, and image adjustments
-- NumPy: required for the live print preview
+If `requirements.txt` changes after a `git pull`, delete the `.venv`
+folder and re-run `Lithopainter.bat` to rebuild it from scratch.
 
 ## Project Files
 
@@ -52,7 +83,8 @@ Lithopainter.bat
   a placeholder file.
 - `output/` - generated ZIPs, extracted STL folders, `.3mf` files, and preview
   artifacts.
-- `Lithopainter.bat` - Windows launcher.
+- `Lithopainter.bat` - Windows launcher with first-run dependency setup.
+- `requirements.txt` - Python packages installed by the launcher into `.venv/`.
 
 ## Basic Workflow
 

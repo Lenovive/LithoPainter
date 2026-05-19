@@ -14,10 +14,21 @@ import zipfile
 
 import bambu_3mf
 
-from PySide6.QtCore import (
-    Qt, QSize, QRect, QPoint, QTimer, QSettings, Signal, QObject,
-    QMetaObject, Q_ARG, QUrl,
-)
+try:
+    from PySide6.QtCore import (
+        Qt, QSize, QRect, QPoint, QTimer, QSettings, Signal, QObject,
+        QMetaObject, Q_ARG, QUrl,
+    )
+except ImportError as _exc:
+    import sys
+    sys.stderr.write(
+        "\nLithopainter: required package PySide6 is not installed "
+        f"({_exc.name or _exc}).\n\n"
+        "Easiest fix: close this window and double-click Lithopainter.bat —\n"
+        "it will create a .venv and install everything for you.\n\n"
+        "Manual fix: pip install -r requirements.txt\n\n"
+    )
+    sys.exit(1)
 from PySide6.QtGui import (
     QColor, QPainter, QPen, QBrush, QFont, QFontDatabase, QPixmap,
     QImage, QPainterPath, QCursor, QFontMetrics, QTransform,
@@ -2216,6 +2227,9 @@ class LithoWindow(QMainWindow):
         # Rotation & image adjustments (non-destructive, applied at preview + export)
         self._rotation:       int = 0   # 0 | 90 | 180 | 270 (clockwise degrees)
         self._image_size_orig: tuple = None   # pre-rotation original dimensions
+        # Crop frame orientation — chosen independently of image rotation.
+        # "landscape" forces W ≥ H; "portrait" forces W ≤ H.
+        self._crop_orientation: str = "portrait" if float(self._height_mm) >= float(self._width_mm) else "landscape"
         self._adj_exposure:   int = 0   # -100 to +100
         self._adj_highlights: int = 0
         self._adj_shadows:    int = 0
@@ -2606,16 +2620,65 @@ class LithoWindow(QMainWindow):
         rot_left = QPushButton("↺")
         rot_left.setFixedSize(28, 22)
         rot_left.setFont(_uf(13))
-        rot_left.setToolTip("Rotate 90° counter-clockwise")
+        rot_left.setToolTip("Rotate image 90° counter-clockwise (crop frame stays put)")
         rot_left.clicked.connect(lambda: self._on_rotate(-90))
         rot_right = QPushButton("↻")
         rot_right.setFixedSize(28, 22)
         rot_right.setFont(_uf(13))
-        rot_right.setToolTip("Rotate 90° clockwise")
+        rot_right.setToolTip("Rotate image 90° clockwise (crop frame stays put)")
         rot_right.clicked.connect(lambda: self._on_rotate(90))
         rot_row.addWidget(rot_left)
         rot_row.addWidget(rot_right)
         content_lay.addLayout(rot_row)
+
+        # Crop orientation row — choose landscape or portrait crop frame
+        crop_row = QHBoxLayout()
+        crop_row.setSpacing(6)
+        crop_lbl = QLabel("Crop")
+        crop_lbl.setFont(_uf(11))
+        crop_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;")
+        _on_theme(lambda: crop_lbl.setStyleSheet(f"color: {T['mid']}; background: transparent;"))
+        crop_row.addWidget(crop_lbl)
+        crop_row.addStretch()
+
+        def _toggle_btn_ss() -> str:
+            return (
+                f"QPushButton {{"
+                f" background: {T['panel_2']}; color: {T['ink_2']};"
+                f" border: 1px solid {T['line']}; border-radius: 4px; padding: 0 6px;"
+                f"}}"
+                f"QPushButton:hover {{ background: {T['hover']}; }}"
+                f"QPushButton:checked {{"
+                f" background: {T['selected']}; color: {T['ink']};"
+                f" border: 1px solid {T['ink']};"
+                f"}}"
+            )
+
+        self._land_btn = QPushButton("▭ Landscape")
+        self._land_btn.setFixedSize(86, 22)
+        self._land_btn.setFont(_uf(10))
+        self._land_btn.setCheckable(True)
+        self._land_btn.setToolTip("Landscape crop frame (wider than tall)")
+        self._land_btn.setStyleSheet(_toggle_btn_ss())
+        self._land_btn.clicked.connect(lambda: self._set_crop_orientation("landscape"))
+        crop_row.addWidget(self._land_btn)
+
+        self._port_btn = QPushButton("▯ Portrait")
+        self._port_btn.setFixedSize(74, 22)
+        self._port_btn.setFont(_uf(10))
+        self._port_btn.setCheckable(True)
+        self._port_btn.setToolTip("Portrait crop frame (taller than wide)")
+        self._port_btn.setStyleSheet(_toggle_btn_ss())
+        self._port_btn.clicked.connect(lambda: self._set_crop_orientation("portrait"))
+        crop_row.addWidget(self._port_btn)
+
+        _on_theme(lambda: (
+            self._land_btn.setStyleSheet(_toggle_btn_ss()),
+            self._port_btn.setStyleSheet(_toggle_btn_ss()),
+        ))
+
+        content_lay.addLayout(crop_row)
+        self._sync_orientation_buttons()
 
         def _signed_value(value: int) -> str:
             return "0" if value == 0 else f"{value:+d}"
@@ -3638,7 +3701,11 @@ class LithoWindow(QMainWindow):
             pix = pix.transformed(QTransform().rotate(self._rotation))
         return pix
 
-    def _refresh_canvas_with_adjustments(self, preserve_crop: bool = True) -> None:
+    def _refresh_canvas_with_adjustments(
+        self,
+        preserve_crop: bool = True,
+        crop_override=None,
+    ) -> None:
         """Rebuild the canvas pixmap from source image + rotation + adjustments."""
         if not self._image_path:
             return
@@ -3655,9 +3722,13 @@ class LithoWindow(QMainWindow):
             else:
                 self._image_size  = (w, h)
                 self._image_aspect = w / h if h else 1.0
-        keep_crop = bool(preserve_crop and old_crop and old_size == self._image_size)
+        keep_crop = bool(
+            crop_override is None and preserve_crop and old_crop and old_size == self._image_size
+        )
         self._canvas.set_pixmap(pix, keep_crop=keep_crop)
-        if self._canvas.crop():
+        if crop_override is not None:
+            self._canvas.set_crop(crop_override)
+        elif self._canvas.crop():
             self._update_crop_stat()
             self._refresh_source_preview()
         else:
@@ -3675,9 +3746,66 @@ class LithoWindow(QMainWindow):
         timer.start(delay_ms)
 
     def _on_rotate(self, direction: int) -> None:
-        """Rotate the image by `direction` degrees (positive = CW, negative = CCW)."""
+        """Rotate the image by `direction` degrees (positive = CW, negative = CCW).
+
+        The crop frame stays put — only the underlying image rotates inside it.
+        The crop is recentered with the user's chosen orientation/aspect afterward.
+        """
         self._rotation = (self._rotation + direction) % 360
         self._refresh_canvas_with_adjustments(preserve_crop=False)
+
+    def _set_crop_orientation(self, orientation: str) -> None:
+        """Switch between landscape/portrait crop. Swaps W/H so the crop matches."""
+        if orientation not in ("landscape", "portrait"):
+            return
+        self._crop_orientation = orientation
+        try:
+            w = float(self._width_mm)
+            h_raw = self._height_mm.strip()
+            h = float(h_raw) if h_raw else w
+        except ValueError:
+            self._sync_orientation_buttons()
+            return
+
+        needs_swap = (
+            (orientation == "landscape" and w < h) or
+            (orientation == "portrait"  and w > h)
+        )
+        if needs_swap and w > 0 and h > 0:
+            def _fmt(v: float) -> str:
+                return str(int(v)) if abs(v - round(v)) < 1e-9 else f"{v:g}"
+            self._updating_dims = True
+            self._width_mm  = _fmt(h)
+            self._height_mm = _fmt(w)
+            self._w_input.setText(self._width_mm)
+            self._h_input.setText(self._height_mm)
+            self._updating_dims = False
+            self._update_size_stat()
+            self._refresh_border_preview()
+            self._schedule_color_preview_refresh()
+            self._update_setting_warnings()
+
+        self._sync_orientation_buttons()
+        self._recenter_crop()
+        if hasattr(self, "_canvas"):
+            self._canvas.update()
+
+    def _sync_orientation_buttons(self) -> None:
+        """Update the orientation toggle visual state to match current W/H."""
+        try:
+            w = float(self._width_mm)
+            h_raw = self._height_mm.strip()
+            h = float(h_raw) if h_raw else w
+        except ValueError:
+            return
+        if w > h:
+            self._crop_orientation = "landscape"
+        elif h > w:
+            self._crop_orientation = "portrait"
+        # If equal, leave the previously selected orientation untouched.
+        if hasattr(self, "_land_btn") and hasattr(self, "_port_btn"):
+            self._land_btn.setChecked(self._crop_orientation == "landscape")
+            self._port_btn.setChecked(self._crop_orientation == "portrait")
 
     def _reset_adjustments(self) -> None:
         """Reset all image-tool sliders to zero."""
@@ -3697,12 +3825,18 @@ class LithoWindow(QMainWindow):
         self._active_preset = key
         for pkey, _label, _dims, w, h in PRESETS:
             if pkey == key:
+                # Honor the user's chosen crop orientation when stamping in the preset.
+                if self._crop_orientation == "landscape" and w < h:
+                    w, h = h, w
+                elif self._crop_orientation == "portrait" and w > h:
+                    w, h = h, w
                 self._updating_dims = True
                 self._width_mm  = str(w)
                 self._height_mm = str(h)
                 self._w_input.setText(str(w))
                 self._h_input.setText(str(h))
                 self._updating_dims = False
+                self._sync_orientation_buttons()
                 self._recenter_crop()
                 self._canvas.update()
                 self._update_size_stat()
@@ -4102,6 +4236,7 @@ class LithoWindow(QMainWindow):
         self._refresh_border_preview()
         self._schedule_color_preview_refresh()
         self._update_setting_warnings()
+        self._sync_orientation_buttons()
 
     def _on_h_changed(self, val: str) -> None:
         if self._updating_dims:
@@ -4113,6 +4248,7 @@ class LithoWindow(QMainWindow):
         self._refresh_border_preview()
         self._schedule_color_preview_refresh()
         self._update_setting_warnings()
+        self._sync_orientation_buttons()
 
     def _on_lock_toggled(self, v: bool) -> None:
         self._lock_ratio = v
@@ -4701,6 +4837,7 @@ class LithoWindow(QMainWindow):
                     except Exception as exc:
                         self._log(f"Unzip failed: {exc}\n", "err")
                         extract_dir = self.output_dir
+                    self._append_print_settings_note(extract_dir)
                     # .3mf generation is disabled for now; keep the exporter
                     # code below so it can be re-enabled quickly.
                     # self._build_bambu_3mf(extract_dir, img_name)
@@ -4730,6 +4867,23 @@ class LithoWindow(QMainWindow):
                         pass
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _append_print_settings_note(self, extract_dir: str) -> None:
+        """Append a recommended-settings line to the JAR-generated
+        instructions.txt so the user has print parameters alongside the
+        swap mapping (no completion popup)."""
+        path = os.path.join(extract_dir, "instructions.txt")
+        note = (
+            "\n\nRecommended print settings\n"
+            "  0.4 mm nozzle  ->  0.1 mm layer height\n"
+            "  0.2 mm nozzle  ->  0.1 mm layer height\n"
+        )
+        try:
+            mode = "a" if os.path.exists(path) else "w"
+            with open(path, mode, encoding="utf-8") as f:
+                f.write(note)
+        except OSError as exc:
+            self._log(f"Could not update instructions.txt: {exc}\n", "warn")
 
     def _parse_ams_swap_overrides(
         self,
@@ -4845,54 +4999,12 @@ class LithoWindow(QMainWindow):
                 )
             else:
                 self._log("  No texture STL found; skipping height-range notes.\n", "dim")
-            mapping_lines = []
-            for p in sorted(parts, key=lambda q: q["extruder"]):
-                mapping_lines.append(
-                    f"    AMS slot {p['extruder']}  →  {p['name']}  ({p['kind']})"
-                )
-            mapping_block = "\n".join(mapping_lines)
-            if tex_part_name:
-                msg = (
-                    "Bambu Studio didn't pick up the embedded height-range modifier "
-                    "(it imports geometry + colors only from non-Bambu .3mf files). "
-                    "Add the modifier manually:\n\n"
-                    f"  1. Right-click the texture part '{tex_part_name}' in the 3D view.\n"
-                    "  2. Choose 'Add height range' (or 'Height range modifier').\n"
-                    "  3. Set:\n"
-                    f"        min Z        = {tex_min_z:.3f} mm\n"
-                    f"        max Z        = {tex_max_z:.3f} mm\n"
-                    f"        layer height = {fine:.3f} mm\n\n"
-                    f"This applies the fine layer height to the texture relief "
-                    f"({tex_max - tex_min} layers x {thick:.2f} mm) while the rest "
-                    f"of the print stays at {thick:.2f} mm.\n\n"
-                    "Extruder mapping (verify this matches your AMS slots):\n"
-                    f"{mapping_block}"
-                )
-            else:
-                msg = (
-                    "No texture part was generated, so no height-range modifier is needed.\n\n"
-                    "Extruder mapping (verify this matches your AMS slots):\n"
-                    f"{mapping_block}"
-                )
-            QMetaObject.invokeMethod(
-                self, "_show_3mf_instructions",
-                Qt.ConnectionType.QueuedConnection,
-                Q_ARG(str, msg),
-            )
+            self._append_print_settings_note(extract_dir)
         except Exception as exc:
             self._log(f".3mf export failed: {exc}\n", "err")
             self._log(traceback.format_exc(), "dim")
 
     from PySide6.QtCore import Slot as _Slot
-
-    @_Slot(str)
-    def _show_3mf_instructions(self, msg: str):
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setWindowTitle("Add height range in Bambu Studio")
-        box.setText(msg)
-        box.setStandardButtons(QMessageBox.StandardButton.Ok)
-        box.exec()
 
     @_Slot()
     def _on_run_done_ok(self):
