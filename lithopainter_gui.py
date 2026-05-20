@@ -2747,6 +2747,7 @@ class LithoWindow(QMainWindow):
         # Collapsible content container
         content = QWidget()
         content.setStyleSheet("background: transparent;")
+        content.hide()
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
         content_lay.setSpacing(5)
@@ -2755,7 +2756,7 @@ class LithoWindow(QMainWindow):
         head_row = QHBoxLayout()
         head_row.setSpacing(6)
 
-        chevron = QPushButton("▼")
+        chevron = QPushButton("▶")
         chevron.setFixedSize(18, 18)
         chevron.setFont(_uf(9))
         chevron.setFlat(True)
@@ -2922,6 +2923,7 @@ class LithoWindow(QMainWindow):
         # Collapsible content container
         content = QWidget()
         content.setStyleSheet("background: transparent;")
+        content.hide()
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
         content_lay.setSpacing(6)
@@ -2930,7 +2932,7 @@ class LithoWindow(QMainWindow):
         head_row = QHBoxLayout()
         head_row.setSpacing(6)
 
-        chevron = QPushButton("▼")
+        chevron = QPushButton("▶")
         chevron.setFixedSize(18, 18)
         chevron.setFont(_uf(9))
         chevron.setFlat(True)
@@ -3033,6 +3035,7 @@ class LithoWindow(QMainWindow):
         # Collapsible content container
         content = QWidget()
         content.setStyleSheet("background: transparent;")
+        content.hide()
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
         content_lay.setSpacing(6)
@@ -3041,7 +3044,7 @@ class LithoWindow(QMainWindow):
         head_row = QHBoxLayout()
         head_row.setSpacing(6)
 
-        chevron = QPushButton("▼")
+        chevron = QPushButton("▶")
         chevron.setFixedSize(18, 18)
         chevron.setFont(_uf(9))
         chevron.setFlat(True)
@@ -3096,6 +3099,7 @@ class LithoWindow(QMainWindow):
         # Collapsible content container
         content = QWidget()
         content.setStyleSheet("background: transparent;")
+        content.hide()
         content_lay = QVBoxLayout(content)
         content_lay.setContentsMargins(0, 0, 0, 0)
         content_lay.setSpacing(6)
@@ -3104,7 +3108,7 @@ class LithoWindow(QMainWindow):
         head_row = QHBoxLayout()
         head_row.setSpacing(6)
 
-        chevron = QPushButton("▼")
+        chevron = QPushButton("▶")
         chevron.setFixedSize(18, 18)
         chevron.setFont(_uf(9))
         chevron.setFlat(True)
