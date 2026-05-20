@@ -1,5 +1,8 @@
 # Lithopainter
 
+> **Vibecoded** — this app was built through iterative prompting with Claude
+> (AI-assisted development). The code works, but expect rough edges.
+
 Lithopainter is a Windows desktop GUI for converting 2D images into
 multi-color STL sets for lithophane-style 3D printing. The UI is written in
 Python/PySide6. The STL generator is the bundled Java JAR, `lithopainter.jar`,
