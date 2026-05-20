@@ -170,6 +170,8 @@ ZIP shapes:
   generated JAR command.
 - Color mode emits color preview, texture preview, plate STL, color STLs,
   instructions, and texture STL.
+- When a border is enabled with texture output, the raised frame is appended as
+  its own `layer-frame.stl` instead of being baked into the texture STL.
 - Single mode locks the UI to one selected filament, sets `-M 3.200`, and
   emits only the texture preview plus one texture STL.
 
@@ -182,6 +184,7 @@ Generation creates a ZIP containing files such as:
 - `layer-<filament>.stl`
 - `layer-plate.stl`
 - `layer-texture-White[PLA Basic].stl`
+- `layer-frame.stl` (when border + texture output are enabled)
 - `instructions.txt`
 
 Lithopainter extracts the ZIP into `output/<name>/` and attempts to create a
@@ -191,15 +194,137 @@ For PIXEstL's 1-AMS multi-color workflow, Lithopainter reads generated
 `instructions.txt` swap lines such as `Cyan-->Matte Ice Blue` and maps the
 target filament STL to the source filament's AMS slot in the generated `.3mf`.
 
-## Palette Notes
+## Palette Reference
 
-PIXEstL color lithophanes rely on measured per-layer filament colors. Palette
-entries with a `layers` object can participate in ADDITIVE color lithophanes.
-Hex-only entries are useful for pixel-art workflows but are ignored by
-ADDITIVE color lithophane generation.
+The bundled palette lives in `resources/filament-palette-0.10mm.json`. Each
+entry is keyed by hex color and describes one physical filament spool.
 
-The white filament entry `#FFFFFF` should remain active for ADDITIVE color
-lithophanes.
+### Entry format
+
+```json
+"#0086D6": {
+  "name": "Cyan[PLA Basic]",
+  "active": true,
+  "layers": {
+    "5": { "H": 203, "S": 99, "L": 45.3 },
+    "4": { "H": 200, "S": 95, "L": 47.6 },
+    "3": { "H": 199, "S": 91, "L": 53.9 },
+    "2": { "H": 199, "S": 100, "L": 64.3 },
+    "1": { "H": 201, "S": 96, "L": 78.2 }
+  }
+}
+```
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `name` | yes | Display name, conventionally `"Label[FilamentType]"` |
+| `active` | yes | Whether the filament is enabled in the palette on load |
+| `layers` | for ADDITIVE | Per-stack-depth HSL measurements (see below) |
+
+### Measured vs. hex-only entries
+
+Entries **with** a `layers` object participate in ADDITIVE color lithophane
+generation. The engine uses the measured transmittance data to decide how many
+layers of each filament to stack for each pixel.
+
+Entries **without** a `layers` object are hex-only. They appear in the palette
+UI and can be used as the single print color in Single-color litho mode, but
+are ignored by ADDITIVE color generation.
+
+### What the layer data means
+
+Each key in `layers` is a layer count (as a string: `"1"` through `"5"` for
+most filaments). The value is the HSL color you see when that many layers of
+the filament are printed over a white backer and viewed with a backlight:
+
+- **H** — hue, 0–360 (integer; the JAR truncates decimals)
+- **S** — saturation, 0–100 (integer; the JAR truncates decimals)
+- **L** — lightness, 0–100 (float; higher = more light passes through)
+
+Layer 1 is the thinnest stack (most light, highest L). Layer 5 is the densest
+(least light, lowest L). The engine converts these to CMYK via the same
+`hslToCmyk` routine as the JAR and combines stacks additively per pixel.
+
+White (`#FFFFFF`) must remain active for ADDITIVE mode. Its entries span
+layers 1–10 because white is used as a base reference across all stack depths.
+
+### Filament groups
+
+The name suffix in brackets is cosmetic grouping only — the engine treats all
+measured entries identically regardless of filament type.
+
+**Measured (ADDITIVE-capable) — 16 entries**
+
+| Hex | Name | Active by default | Layer range |
+|-----|------|-------------------|-------------|
+| `#FFFFFF` | White[PLA Basic] | yes | 1–10 |
+| `#0086D6` | Cyan[PLA Basic] | yes | 1–5 |
+| `#EC008C` | Magenta[PLA Basic] | yes | 1–5 |
+| `#FCE300` | Yellow[PLA Basic] | yes | 1–5 |
+| `#000000` | Black[PLA Basic] | no | 4–5 |
+| `#A6A9AA` | Silver[PLA Basic] | no | 1–5 |
+| `#E7CEB5` | Beige[PLA Basic] | no | 1–5 |
+| `#6E3FA3` | Purple[PLA Basic] | no | 1–5 |
+| `#FFE34F` | Pale yellow[OVERTURE] | no | 1–5 |
+| `#8BD5EE` | Matte Ice Blue[PLA Matte] | no | 1–5 |
+| `#E4BDD0` | Matte Sakura Pink[PLA Matte] | no | 1–5 |
+| `#D3B7A7` | Matte Latte Brown[PLA Matte] | no | 1–5 |
+| `#61C680` | Matte Grass Green[PLA Matte] | no | 1–5 |
+| `#BB3D43` | Matte Dark Red[PLA Matte] | no | 1–5 |
+| `#F99963` | Matte Mandarin Orange[PLA Matte] | no | 1–5 |
+| `#EEE7D4` | Bone White[Custom] | no | 1–5 |
+
+**Hex-only — 30 entries**
+
+PLA Basic: Gold, Bamboo Green, Blue, Red, Green, Orange, Grey, Blue Grey,
+Pink, Brown.  
+PLA Matte: Matte Lilac Violet, Matte Marine Blue, Matte Scarlet Red,
+Matte Lemon Yellow, Matte Ash Grey, Matte Dark Green, Matte Dark Blue,
+Matte Dark Brown.  
+PLA Silk: Gold, Silver, Copper, Blue.  
+PLA Metal: Iridium Gold Metallic, Cobalt Blue Metallic, Oxide Green Metallic,
+Copper Brown Metallic, Iron Grey Metallic.  
+PLA Sparkle: Alpine Green Sparkle, Crimson Red Sparkle, Onyx Black Sparkle.  
+PLA Tough: Lavender Blue, Pine Green, Black, Grey.
+
+### Adding a new filament
+
+**Hex-only** — add an entry with no `layers` object. It will appear in the
+palette UI and can be used in Single-color mode:
+
+```json
+"#1A2B3C": {
+  "name": "Navy Blue[PLA Basic]",
+  "active": false
+}
+```
+
+**ADDITIVE-capable** — you also need to measure the filament's transmittance
+at each stack depth:
+
+1. Print five test tiles at 1, 2, 3, 4, and 5 layers thick on a white backer
+   (use the same 0.10 mm layer height as the palette filename indicates).
+2. Backlight each tile and photograph or measure it in your color tool of
+   choice. Record the HSL value you observe.
+3. Add an entry using the measured H (integer), S (integer), and L (float)
+   values for each depth:
+
+```json
+"#1A2B3C": {
+  "name": "Navy Blue[PLA Basic]",
+  "active": false,
+  "layers": {
+    "5": { "H": 220, "S": 80, "L": 25.0 },
+    "4": { "H": 218, "S": 75, "L": 32.0 },
+    "3": { "H": 215, "S": 70, "L": 42.0 },
+    "2": { "H": 212, "S": 65, "L": 55.0 },
+    "1": { "H": 210, "S": 55, "L": 70.0 }
+  }
+}
+```
+
+The palette file is re-read each time the app starts, so changes take effect
+without rebuilding anything.
 
 ## License
 

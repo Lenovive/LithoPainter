@@ -387,6 +387,181 @@ def _apply_source_border(img, border_mm: float, out_w_mm: float,
     return canvas
 
 
+def _ascii_stl_bounds(stl_data: bytes | str) -> tuple[float, float, float, float, float, float] | None:
+    """Return min/max XYZ bounds for an ASCII STL blob."""
+    if isinstance(stl_data, bytes):
+        text = stl_data.decode("utf-8", errors="replace")
+    else:
+        text = stl_data
+    min_x = min_y = min_z = float("inf")
+    max_x = max_y = max_z = float("-inf")
+    found = False
+    for line in text.splitlines():
+        s = line.lstrip()
+        if not s.startswith("vertex"):
+            continue
+        parts = s.split()
+        if len(parts) < 4:
+            continue
+        try:
+            x = float(parts[1])
+            y = float(parts[2])
+            z = float(parts[3])
+        except ValueError:
+            continue
+        found = True
+        min_x = min(min_x, x)
+        max_x = max(max_x, x)
+        min_y = min(min_y, y)
+        max_y = max(max_y, y)
+        min_z = min(min_z, z)
+        max_z = max(max_z, z)
+    if not found:
+        return None
+    return min_x, max_x, min_y, max_y, min_z, max_z
+
+
+def _fmt_stl_float(value: float) -> str:
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    if text in {"", "-0"}:
+        return "0"
+    return text
+
+
+def _triangle_normal(a, b, c) -> tuple[float, float, float]:
+    ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+    vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+    nx = uy * vz - uz * vy
+    ny = uz * vx - ux * vz
+    nz = ux * vy - uy * vx
+    mag = (nx * nx + ny * ny + nz * nz) ** 0.5
+    if mag <= 0:
+        return 0.0, 0.0, 0.0
+    return nx / mag, ny / mag, nz / mag
+
+
+def _build_frame_stl(
+    bounds: tuple[float, float, float, float, float, float],
+    border_mm: float,
+    frame_height_mm: float,
+    solid_name: str = "layer-frame",
+) -> str | None:
+    """Build a rectangular raised frame aligned to an existing texture STL."""
+    x0, x1, y0, y1, z0, _z1 = bounds
+    outer_w = x1 - x0
+    outer_h = y1 - y0
+    if outer_w <= 0 or outer_h <= 0 or border_mm <= 0 or frame_height_mm <= 0:
+        return None
+    z1 = z0 + frame_height_mm
+    inset = min(border_mm, outer_w / 2.0, outer_h / 2.0)
+    if inset <= 0:
+        return None
+
+    lines: list[str] = [f"solid {solid_name}"]
+
+    def add_triangle(a, b, c) -> None:
+        nx, ny, nz = _triangle_normal(a, b, c)
+        lines.append(
+            f"  facet normal {_fmt_stl_float(nx)} {_fmt_stl_float(ny)} {_fmt_stl_float(nz)}"
+        )
+        lines.append("    outer loop")
+        for vx, vy, vz in (a, b, c):
+            lines.append(
+                "      vertex "
+                f"{_fmt_stl_float(vx)} {_fmt_stl_float(vy)} {_fmt_stl_float(vz)}"
+            )
+        lines.append("    endloop")
+        lines.append("  endfacet")
+
+    def add_quad(a, b, c, d) -> None:
+        add_triangle(a, b, c)
+        add_triangle(a, c, d)
+
+    def add_box(bx0: float, bx1: float, by0: float, by1: float) -> None:
+        add_quad((bx0, by0, z1), (bx1, by0, z1), (bx1, by1, z1), (bx0, by1, z1))
+        add_quad((bx0, by0, z0), (bx0, by1, z0), (bx1, by1, z0), (bx1, by0, z0))
+        add_quad((bx0, by0, z0), (bx1, by0, z0), (bx1, by0, z1), (bx0, by0, z1))
+        add_quad((bx0, by1, z0), (bx0, by1, z1), (bx1, by1, z1), (bx1, by1, z0))
+        add_quad((bx0, by0, z0), (bx0, by0, z1), (bx0, by1, z1), (bx0, by1, z0))
+        add_quad((bx1, by0, z0), (bx1, by1, z0), (bx1, by1, z1), (bx1, by0, z1))
+
+    if inset * 2.0 >= outer_w or inset * 2.0 >= outer_h:
+        add_box(x0, x1, y0, y1)
+    else:
+        ix0, ix1 = x0 + inset, x1 - inset
+        iy0, iy1 = y0 + inset, y1 - inset
+
+        # Top and bottom ring faces, split into four rectangular bands.
+        bands = [
+            (x0, x1, y0, iy0),
+            (x0, x1, iy1, y1),
+            (x0, ix0, iy0, iy1),
+            (ix1, x1, iy0, iy1),
+        ]
+        for bx0, bx1, by0, by1 in bands:
+            add_quad((bx0, by0, z1), (bx1, by0, z1), (bx1, by1, z1), (bx0, by1, z1))
+            add_quad((bx0, by0, z0), (bx0, by1, z0), (bx1, by1, z0), (bx1, by0, z0))
+
+        # Outer side walls.
+        add_quad((x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1))
+        add_quad((x0, y1, z0), (x0, y1, z1), (x1, y1, z1), (x1, y1, z0))
+        add_quad((x0, y0, z0), (x0, y0, z1), (x0, y1, z1), (x0, y1, z0))
+        add_quad((x1, y0, z0), (x1, y1, z0), (x1, y1, z1), (x1, y0, z1))
+
+        # Inner hole walls face into the opening.
+        add_quad((ix0, iy0, z0), (ix0, iy0, z1), (ix1, iy0, z1), (ix1, iy0, z0))
+        add_quad((ix0, iy1, z0), (ix1, iy1, z0), (ix1, iy1, z1), (ix0, iy1, z1))
+        add_quad((ix0, iy0, z0), (ix0, iy1, z0), (ix0, iy1, z1), (ix0, iy0, z1))
+        add_quad((ix1, iy0, z0), (ix1, iy0, z1), (ix1, iy1, z1), (ix1, iy1, z0))
+
+    lines.append(f"endsolid {solid_name}")
+    return "\n".join(lines) + "\n"
+
+
+def _unique_zip_name(existing: set[str], desired: str) -> str:
+    if desired not in existing:
+        return desired
+    root, ext = os.path.splitext(desired)
+    i = 2
+    while f"{root}-{i}{ext}" in existing:
+        i += 1
+    return f"{root}-{i}{ext}"
+
+
+def _append_frame_stl_to_zip(
+    zip_path: str,
+    border_mm: float,
+    frame_height_mm: float,
+    frame_name: str = "layer-frame.stl",
+) -> str | None:
+    """Append a separate raised frame STL using the texture STL as alignment."""
+    if border_mm <= 0 or frame_height_mm <= 0:
+        return None
+    with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as zf:
+        names = set(zf.namelist())
+        texture_name = next(
+            (
+                name for name in zf.namelist()
+                if name.lower().endswith(".stl")
+                and "texture" in os.path.basename(name).lower()
+            ),
+            None,
+        )
+        if texture_name is None:
+            return None
+        texture_data = zf.read(texture_name)
+        bounds = _ascii_stl_bounds(texture_data)
+        if bounds is None:
+            return None
+        out_name = _unique_zip_name(names, frame_name)
+        solid_name = os.path.splitext(os.path.basename(out_name))[0]
+        frame_stl = _build_frame_stl(bounds, border_mm, frame_height_mm, solid_name)
+        if frame_stl is None:
+            return None
+        zf.writestr(out_name, frame_stl)
+        return out_name
+
+
 def _enumerate_stacks(entries, n_filaments, n_total_layers, max_candidates):
     """Enumerate every valid ColorCombi: each filament contributes at most
     one entry, total layer counts sum to exactly `n_total_layers`. Returns
@@ -4156,12 +4331,7 @@ class LithoWindow(QMainWindow):
                     border_mm = 0.0
                     out_w_mm = 0.0
                 if border_mm > 0 and out_w_mm > 0:
-                    border_rgb = (
-                        (0, 0, 0)
-                        if self._current_litho_mode() == "single"
-                        else (255, 255, 255)
-                    )
-                    img = _apply_source_border(img, border_mm, out_w_mm, border_rgb)
+                    img = _apply_source_border(img, border_mm, out_w_mm, (255, 255, 255))
                     meta += f"  |  border {border_mm:g} mm"
                 data = img.tobytes("raw", "RGB")
                 qimg = QImage(data, img.width, img.height, img.width * 3,
@@ -4337,7 +4507,7 @@ class LithoWindow(QMainWindow):
                 int(round(cx + cw)), int(round(cy + ch)),
             ))
         if border_mm > 0:
-            img = _apply_source_border(img, border_mm, out_w_mm, (0, 0, 0))
+            img = _apply_source_border(img, border_mm, out_w_mm, (255, 255, 255))
 
         iw, ih = img.size
         grid_w = max(1, int(out_w_mm / texture_px))
@@ -4985,7 +5155,6 @@ class LithoWindow(QMainWindow):
 
         def _worker() -> None:
             tmp_paths: list = []
-            tmp_zips: list = []
             try:
                 JAVA_SUPPORTED = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".wbmp"}
                 ext = os.path.splitext(img)[1].lower()
@@ -5056,8 +5225,9 @@ class LithoWindow(QMainWindow):
                     )
                 if needs_border:
                     self._log(
-                        f"Added {border_mm_val:g} mm border — white for "
-                        f"color/base pass, black for texture pass.\n", "dim"
+                        f"Added {border_mm_val:g} mm border; texture frame "
+                        "exports as a separate STL when texture output is enabled.\n",
+                        "dim",
                     )
 
                 color_out, texture_out = self._output_flags()
@@ -5094,77 +5264,23 @@ class LithoWindow(QMainWindow):
                     self._proc = None
                     return proc.returncode
 
-                if needs_border and color_out and texture_out:
-                    # Two-pass: white border drives color/base, black border
-                    # drives texture (so the border reaches max thickness AND
-                    # has solid color/plate underneath it).
-                    color_src = _bake_input((255, 255, 255))
-                    tex_src   = _bake_input((0, 0, 0))
-                    color_zip = tempfile.NamedTemporaryFile(
-                        suffix=".zip", delete=False
-                    )
-                    color_zip.close()
-                    tmp_zips.append(color_zip.name)
-                    tex_zip = tempfile.NamedTemporaryFile(
-                        suffix=".zip", delete=False
-                    )
-                    tex_zip.close()
-                    tmp_zips.append(tex_zip.name)
-
-                    # Both passes run with full output so each STL is placed at
-                    # the correct Z (texture sits above the color stack, not
-                    # flush on the plate). The merge then picks color/plate
-                    # from the white-border pass and texture from the
-                    # black-border pass.
-                    rc = _run(self._build_jar_cmd(color_src, color_zip.name,
-                                                  color=True, texture=True,
-                                                  palette_path=palette_path))
-                    if rc != 0:
-                        self._log(f"\nColor pass exited with code {rc}\n", "err")
-                        QMetaObject.invokeMethod(self, "_on_run_done_err",
-                                                 Qt.ConnectionType.QueuedConnection)
-                        return
-                    rc = _run(self._build_jar_cmd(tex_src, tex_zip.name,
-                                                  color=True, texture=True,
-                                                  palette_path=palette_path))
-                    if rc != 0:
-                        self._log(f"\nTexture pass exited with code {rc}\n", "err")
-                        QMetaObject.invokeMethod(self, "_on_run_done_err",
-                                                 Qt.ConnectionType.QueuedConnection)
-                        return
-
-                    def _is_texture(name: str) -> bool:
-                        return "texture" in os.path.basename(name).lower()
-
-                    with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zout:
-                        seen_names: set = set()
-                        with zipfile.ZipFile(color_zip.name) as zin:
-                            for info in zin.infolist():
-                                if _is_texture(info.filename):
-                                    continue
-                                seen_names.add(info.filename)
-                                zout.writestr(info, zin.read(info.filename))
-                        with zipfile.ZipFile(tex_zip.name) as zin:
-                            for info in zin.infolist():
-                                if not _is_texture(info.filename):
-                                    continue
-                                if info.filename in seen_names:
-                                    continue
-                                seen_names.add(info.filename)
-                                zout.writestr(info, zin.read(info.filename))
-                    self._log(f"\nMerged color + texture passes.\n", "dim")
-                    rc = 0
-                else:
-                    border_rgb = None
-                    if needs_border:
-                        border_rgb = (255, 255, 255) if color_out else (0, 0, 0)
-                    src = _bake_input(border_rgb)
-                    rc = _run(self._build_jar_cmd(
-                        src, out_zip, color=color_out, texture=texture_out,
-                        palette_path=palette_path
-                    ))
+                border_rgb = (255, 255, 255) if needs_border else None
+                src = _bake_input(border_rgb)
+                rc = _run(self._build_jar_cmd(
+                    src, out_zip, color=color_out, texture=texture_out,
+                    palette_path=palette_path
+                ))
 
                 if rc == 0:
+                    if needs_border and texture_out:
+                        _thick, _plate_mm, _tmin_mm, tmax_mm = self._generation_thicknesses()
+                        frame_file = _append_frame_stl_to_zip(
+                            out_zip, border_mm_val, tmax_mm
+                        )
+                        if frame_file:
+                            self._log(f"Added separate frame STL: {frame_file}\n", "dim")
+                        else:
+                            self._log("Could not add separate frame STL.\n", "warn")
                     self._log(f"\nDone! Output: {out_zip}\n", "ok")
                     extract_dir = os.path.join(self.output_dir, img_name)
                     try:
@@ -5197,7 +5313,7 @@ class LithoWindow(QMainWindow):
                 self._log(f"Error: {exc}\n", "err")
                 QMetaObject.invokeMethod(self, "_on_run_done_err", Qt.ConnectionType.QueuedConnection)
             finally:
-                for p in tmp_paths + tmp_zips:
+                for p in tmp_paths:
                     try:
                         if p and os.path.exists(p):
                             os.remove(p)
@@ -5224,9 +5340,17 @@ class LithoWindow(QMainWindow):
             mode_line = "  Litho mode -> Color only (-z true, -Z false)\n"
         else:
             mode_line = "  Litho mode -> Custom\n"
+        frame_line = ""
+        try:
+            border_mm = float(self._border_mm.strip() or "0")
+        except ValueError:
+            border_mm = 0.0
+        if texture_out and border_mm > 0:
+            frame_line = "  Frame -> layer-frame.stl\n"
         note = (
             "\n\nRecommended print settings\n"
             f"{mode_line}"
+            f"{frame_line}"
             "  0.4 mm nozzle  ->  0.1 mm layer height\n"
             "  0.2 mm nozzle  ->  0.1 mm layer height\n"
         )

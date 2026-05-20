@@ -301,7 +301,7 @@ def classify_jar_stls(
         mapping. Lithopainter uses this for PIXEstL's 1-AMS swap instructions,
         e.g. target colors after `Cyan-->Matte Ice Blue` inherit Cyan's slot.
 
-    Texture/plate/margin always pin to extruder 1 (the texture/base material).
+    Texture/plate/margin/frame always pin to extruder 1 (the texture/base material).
     Without `template_colours`, color extruders fall back to palette order
     starting at 2.
     """
@@ -328,7 +328,7 @@ def classify_jar_stls(
             kind, extr = "plate", 1
         elif "texture" in low:
             kind, extr = "texture", 1
-        elif "margin" in low or "border" in low:
+        elif "margin" in low or "border" in low or "frame" in low:
             kind, extr = "margin", 1
         else:
             kind = "color"

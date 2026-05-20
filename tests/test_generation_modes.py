@@ -8,6 +8,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import bambu_3mf
+
 from PySide6.QtWidgets import QApplication
 
 from lithopainter_gui import (
@@ -16,6 +18,8 @@ from lithopainter_gui import (
     SCRIPT_DIR,
     SINGLE_COLOR_LAYER_HEIGHT,
     SINGLE_COLOR_TEXTURE_MAX_LAYERS,
+    _append_frame_stl_to_zip,
+    _ascii_stl_bounds,
 )
 
 
@@ -193,6 +197,45 @@ class GenerationModeTests(unittest.TestCase):
         self.assertNotIn("instructions.txt", entries)
         stls = [name for name in entries if name.lower().endswith(".stl")]
         self.assertEqual(stls, ["layer-texture-White[PLA Basic].stl"])
+
+    def test_frame_stl_can_be_added_as_separate_output(self) -> None:
+        self.win._set_litho_mode("single")
+        self.win._on_filament_toggled("#C00D1E", True)
+
+        tmp_paths: list[str] = []
+        zip_path = self.tmp_path / "single-with-frame.zip"
+        try:
+            palette_path = self.win._write_single_color_engine_palette(tmp_paths)
+            self._run_jar(zip_path, palette_path)
+            frame_name = _append_frame_stl_to_zip(str(zip_path), 1.0, 3.2)
+        finally:
+            for tmp_path in tmp_paths:
+                try:
+                    Path(tmp_path).unlink()
+                except OSError:
+                    pass
+
+        self.assertEqual(frame_name, "layer-frame.stl")
+        with zipfile.ZipFile(zip_path) as zf:
+            entries = sorted(zf.namelist())
+            self.assertIn("layer-frame.stl", entries)
+            texture_name = next(
+                name for name in entries
+                if name.lower().endswith(".stl") and "texture" in name.lower()
+            )
+            texture_bounds = _ascii_stl_bounds(zf.read(texture_name))
+            frame_bounds = _ascii_stl_bounds(zf.read("layer-frame.stl"))
+
+        self.assertIsNotNone(texture_bounds)
+        self.assertIsNotNone(frame_bounds)
+        self.assertEqual(frame_bounds[:4], texture_bounds[:4])
+        self.assertAlmostEqual(frame_bounds[4], texture_bounds[4])
+        self.assertAlmostEqual(frame_bounds[5], texture_bounds[4] + 3.2)
+
+    def test_frame_stl_classifies_as_margin_for_3mf_export(self) -> None:
+        parts = bambu_3mf.classify_jar_stls([str(self.tmp_path / "layer-frame.stl")])
+        self.assertEqual(parts[0]["kind"], "margin")
+        self.assertEqual(parts[0]["extruder"], 1)
 
 
 if __name__ == "__main__":
