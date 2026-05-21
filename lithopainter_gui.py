@@ -1594,8 +1594,11 @@ class PreviewCanvas(QWidget):
 class JarPreviewPanel(QWidget):
     """Shows a fitted image preview with a small metadata header."""
 
+    overlay_toggled = Signal(bool)
+
     def __init__(self, title: str = "PRINT PREVIEW",
                  empty_text: str = "Load an image to see the print preview",
+                 show_overlay_toggle: bool = False,
                  parent=None):
         super().__init__(parent)
         self.setMinimumWidth(180)
@@ -1605,6 +1608,40 @@ class JarPreviewPanel(QWidget):
         self._preview_pix: QPixmap | None = None
         self._meta_text: str = ""
         self._empty_text: str = empty_text
+
+        self._overlay_label: QLabel | None = None
+        self._overlay_switch: ToggleSwitch | None = None
+        if show_overlay_toggle:
+            self._overlay_label = QLabel("Relief", self)
+            self._overlay_label.setFont(_mf(10, 600))
+            self._overlay_label.setStyleSheet(f"color: {T['mid']}; background: transparent;")
+            self._overlay_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            self._overlay_switch = ToggleSwitch(False, self)
+            self._overlay_switch.setToolTip(
+                "Overlay texture relief shading on the color preview"
+            )
+            self._overlay_switch.toggled.connect(self.overlay_toggled.emit)
+            _on_theme(self._apply_overlay_theme)
+
+    def _apply_overlay_theme(self) -> None:
+        if self._overlay_label is not None:
+            self._overlay_label.setStyleSheet(
+                f"color: {T['mid']}; background: transparent;"
+            )
+
+    def set_overlay_enabled(self, enabled: bool) -> None:
+        if self._overlay_switch is None:
+            return
+        # Update the switch without emitting overlay_toggled.
+        self._overlay_switch.setChecked(bool(enabled))
+
+    def set_overlay_visible(self, visible: bool) -> None:
+        if self._overlay_switch is None:
+            return
+        self._overlay_switch.setVisible(visible)
+        if self._overlay_label is not None:
+            self._overlay_label.setVisible(visible)
+        self.update()
 
     def set_preview(self, pix: QPixmap | None, meta_text: str = "") -> None:
         self._preview_pix = pix
@@ -1617,6 +1654,35 @@ class JarPreviewPanel(QWidget):
     def set_empty_text(self, text: str) -> None:
         self._empty_text = text
         self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_overlay_widgets()
+
+    def _position_overlay_widgets(self) -> None:
+        if self._overlay_switch is None:
+            return
+        header_h = 28
+        pad = 12
+        sw_w, sw_h = self._overlay_switch.width(), self._overlay_switch.height()
+        sw_x = self.width() - pad - sw_w
+        sw_y = (header_h - sw_h) // 2
+        self._overlay_switch.move(sw_x, sw_y)
+        if self._overlay_label is not None:
+            lbl_hint = self._overlay_label.sizeHint()
+            lbl_x = sw_x - 6 - lbl_hint.width()
+            lbl_y = (header_h - lbl_hint.height()) // 2
+            self._overlay_label.move(lbl_x, lbl_y)
+            self._overlay_label.resize(lbl_hint)
+
+    def _header_right_reserved(self) -> int:
+        """Pixels reserved on the right of the header for the overlay toggle."""
+        if self._overlay_switch is None or not self._overlay_switch.isVisible():
+            return 12
+        reserved = 12 + self._overlay_switch.width()
+        if self._overlay_label is not None and self._overlay_label.isVisible():
+            reserved += 6 + self._overlay_label.sizeHint().width()
+        return reserved + 8  # small gap before meta text ends
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -1636,7 +1702,8 @@ class JarPreviewPanel(QWidget):
         title = self._title
         if self._meta_text:
             title = f"{title}  ·  {self._meta_text}"
-        p.drawText(header_rect.adjusted(12, 0, -12, 0),
+        right_pad = self._header_right_reserved()
+        p.drawText(header_rect.adjusted(12, 0, -right_pad, 0),
                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
 
         # Body region for the preview pixmap.
@@ -2384,6 +2451,9 @@ class LithoWindow(QMainWindow):
         self._last_preview_requested: tuple | None = None
         self._last_preview_actual: tuple | None = None
         self._show_hex_only = False
+        self._show_texture_overlay: bool = bool(
+            _settings.value("show_texture_overlay", False, type=bool)
+        )
         self._width_mm:  str = "108"
         self._height_mm: str = "144"
         self._lock_ratio: bool = False
@@ -3483,7 +3553,9 @@ class LithoWindow(QMainWindow):
             "CROPPED SOURCE",
             "Adjust the crop to preview the source image",
         )
-        self._jar_panel = JarPreviewPanel()
+        self._jar_panel = JarPreviewPanel(show_overlay_toggle=True)
+        self._jar_panel.set_overlay_enabled(self._show_texture_overlay)
+        self._jar_panel.overlay_toggled.connect(self._on_texture_overlay_toggled)
         if not (HAS_PIL and HAS_NUMPY):
             self._jar_panel.set_empty_text(
                 "Install Pillow + NumPy for live print preview"
@@ -3721,6 +3793,7 @@ class LithoWindow(QMainWindow):
     # ── Lifecycle ─────────────────────────────────────────────────────────────
     def closeEvent(self, event):
         _settings.setValue("window_geometry", self.saveGeometry())
+        _settings.setValue("show_texture_overlay", self._show_texture_overlay)
         splitter = getattr(self, "_main_splitter", None)
         if splitter is not None:
             sizes = splitter.sizes()
@@ -4242,6 +4315,10 @@ class LithoWindow(QMainWindow):
         self._low_memory = enabled
         self._update_setting_warnings()
 
+    def _on_texture_overlay_toggled(self, enabled: bool) -> None:
+        self._show_texture_overlay = bool(enabled)
+        self._schedule_color_preview_refresh()
+
     def _update_setting_warnings(self) -> None:
         label = getattr(self, "_settings_warning_label", None)
         if label is None:
@@ -4366,12 +4443,14 @@ class LithoWindow(QMainWindow):
         panel = getattr(self, "_jar_panel", None)
         if panel is None:
             return
+        is_multi = self._current_litho_mode() != "single"
+        panel.set_overlay_visible(is_multi)
         if not self._image_path or not os.path.isfile(self._image_path):
             panel.clear()
             self._update_setting_warnings()
             return
         try:
-            if self._current_litho_mode() == "single":
+            if not is_multi:
                 result = self._build_single_color_preview()
             else:
                 active = [hx for hx, on in self.color_vars.items() if on]
@@ -4463,6 +4542,18 @@ class LithoWindow(QMainWindow):
         if quant is None:
             return None
 
+        if self._show_texture_overlay and HAS_NUMPY:
+            # Multiply a softened luminance map onto the color stack so the
+            # printed relief reads through the colors. Source is the same `img`
+            # that fed the quantization, so cells line up 1:1.
+            gray = img.convert("L").resize((grid_w, grid_h), Image.NEAREST)
+            g = np.asarray(gray, dtype=np.float32) / 255.0
+            # Remap [0, 1] → [0.35, 1.0] so deep shadows shade without crushing.
+            g = 0.35 + 0.65 * g
+            q = np.asarray(quant, dtype=np.float32)
+            shaded = np.clip(q * g[..., None], 0, 255).astype(np.uint8)
+            quant = Image.fromarray(shaded, "RGB")
+
         # PIL → QPixmap
         data = quant.tobytes("raw", "RGB")
         qimg = QImage(data, quant.width, quant.height, quant.width * 3,
@@ -4483,6 +4574,8 @@ class LithoWindow(QMainWindow):
             f"{quant.width} × {quant.height} cells  ·  {uniq} colors"
         )
         meta += "  ·  capped" if self._last_preview_capped else "  ·  full preview"
+        if self._show_texture_overlay and HAS_NUMPY:
+            meta += "  ·  relief"
         return pix, meta
 
     def _build_single_color_preview(self):
