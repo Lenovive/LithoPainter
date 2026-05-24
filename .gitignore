@@ -21,11 +21,14 @@ AGENTS.md
 .ruff_cache/
 .python-version
 
-# Packaging
-build/
+# Packaging — keep build/lithopainter.spec and build/installer.iss tracked,
+# ignore PyInstaller workdirs, downloaded JRE, and final installer output.
+build/work/
+build/jre.zip
+build/jre-extract/
 dist/
+installer-out/
 *.egg-info/
-*.spec
 
 # Secrets / env
 .env

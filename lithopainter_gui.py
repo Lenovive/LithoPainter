@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import traceback
@@ -20,7 +21,6 @@ try:
         QMetaObject, Q_ARG, QUrl,
     )
 except ImportError as _exc:
-    import sys
     sys.stderr.write(
         "\nLithopainter: required package PySide6 is not installed "
         f"({_exc.name or _exc}).\n\n"
@@ -54,8 +54,34 @@ try:
 except ImportError:
     HAS_NUMPY = False
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-JAR_PATH   = os.path.join(SCRIPT_DIR, "lithopainter.jar")
+def _resource_path(*parts: str) -> str:
+    """Resolve a bundled read-only resource (JAR, palette, templates).
+
+    Under PyInstaller these live in the temp `_MEIPASS` dir; in source runs
+    they sit next to this script."""
+    base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, *parts)
+
+
+def _app_base_dir() -> str:
+    """Resolve the user-writable folder next to the installed EXE (or the
+    source dir when running from Python). Used for `output/` and `input/` so
+    those user-facing artifacts persist across launches."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _resolve_java() -> str:
+    """Prefer the JRE shipped next to the EXE; fall back to whatever
+    `java` is on PATH (matches the source-run behavior)."""
+    bundled = os.path.join(_app_base_dir(), "jre", "bin", "java.exe")
+    return bundled if os.path.isfile(bundled) else "java"
+
+
+SCRIPT_DIR = _app_base_dir()
+JAR_PATH   = _resource_path("lithopainter.jar")
+JAVA_EXE   = _resolve_java()
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
 THEMES = {
@@ -2438,8 +2464,8 @@ class LithoWindow(QMainWindow):
         self.output_dir = os.path.join(SCRIPT_DIR, "output")
         os.makedirs(self.output_dir, exist_ok=True)
 
-        self._default_palette = os.path.join(
-            SCRIPT_DIR, "resources", "filament-palette-0.10mm.json"
+        self._default_palette = _resource_path(
+            "resources", "filament-palette-0.10mm.json"
         )
         self._palette_path = self._default_palette
         self._active_preset     = "bambu_frame"
@@ -4786,7 +4812,7 @@ class LithoWindow(QMainWindow):
                        palette_path: str | None = None) -> list:
         _thick, plate_mm, tmin_mm, tmax_mm = self._generation_thicknesses()
         cmd = [
-            "java", "-jar", JAR_PATH,
+            JAVA_EXE, "-jar", JAR_PATH,
             "-p", palette_path or self._palette_path,
             "-w", self._width_mm.strip(),
         ]
@@ -4841,7 +4867,7 @@ class LithoWindow(QMainWindow):
         dlg.exec()
 
     def _show_engine_help(self) -> None:
-        cmd = ["java", "-jar", JAR_PATH, "--help"]
+        cmd = [JAVA_EXE, "-jar", JAR_PATH, "--help"]
         try:
             proc = subprocess.run(
                 cmd,
@@ -5495,7 +5521,7 @@ class LithoWindow(QMainWindow):
     def _build_bambu_3mf(self, extract_dir: str, img_name: str) -> None:
         """After the JAR succeeds, package the STLs as a Bambu .3mf with a
         height-range modifier on the texture region (fine layer height)."""
-        template_dir = os.path.join(SCRIPT_DIR, "resources", "bambu_template")
+        template_dir = _resource_path("resources", "bambu_template")
         if not os.path.exists(os.path.join(template_dir, "project_settings.config")):
             self._log(
                 "Skipping .3mf: resources/bambu_template/project_settings.config "

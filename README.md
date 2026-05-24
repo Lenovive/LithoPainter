@@ -21,45 +21,40 @@ documentation are Lithopainter-specific additions around that engine.
 
 ## Get Started
 
-### 1. Install the prerequisites (once per machine)
+### Install (recommended — beginners)
 
-`Lithopainter.bat` will detect these and tell you which is missing.
+Download the latest `LithopainterSetup.exe` from the
+[Releases page](https://github.com/Lenovive/LithoPainter/releases) and run it.
+The installer is per-user (no admin prompt) and bundles everything Lithopainter
+needs — including the Java runtime — so there are no other prerequisites.
 
-- **Python 3.10+** — https://www.python.org/downloads/
-  During install, tick **Add python.exe to PATH**.
-- **Java 17+ runtime** — https://adoptium.net/
-  Needed by the bundled STL generator (`lithopainter.jar`).
+After install, launch **Lithopainter** from the Start Menu. Generated STLs
+and `.3mf` files land in the `output/` folder inside the install location;
+the **Open output folder** button in the app opens it in Explorer.
 
-### 2. Download Lithopainter
+### Run from source (developers)
 
-Either clone the repo with git:
+If you'd rather work from the repo:
 
-```cmd
-git clone https://github.com/Lenovive/LithoPainter.git
-cd LithoPainter
-```
+1. **Install prerequisites** (once per machine). `Lithopainter.bat` detects
+   these and tells you which is missing.
+   - **Python 3.10+** — https://www.python.org/downloads/
+     During install, tick **Add python.exe to PATH**.
+   - **Java 17+ runtime** — https://adoptium.net/
+     Needed by the bundled STL generator (`lithopainter.jar`).
+2. **Get the code**:
+   ```cmd
+   git clone https://github.com/Lenovive/LithoPainter.git
+   cd LithoPainter
+   ```
+   Or download the ZIP from
+   [github.com/Lenovive/LithoPainter](https://github.com/Lenovive/LithoPainter)
+   via the green **Code** button.
+3. **Launch** by double-clicking `Lithopainter.bat`. On first run it creates a
+   `.venv/`, installs `requirements.txt` (PySide6, Pillow, NumPy), and opens
+   the GUI. Later runs skip straight to launch.
 
-Or, if you don't use git, open
-[github.com/Lenovive/LithoPainter](https://github.com/Lenovive/LithoPainter),
-click the green **Code** button, choose **Download ZIP**, and extract the
-folder somewhere you can find it.
-
-### 3. Launch the app
-
-Double-click `Lithopainter.bat`. On first run it will:
-
-1. Verify Python and Java are installed.
-2. Create a local virtual environment in `.venv/`.
-3. Install the Python dependencies from `requirements.txt` (PySide6,
-   Pillow, NumPy).
-4. Launch the GUI.
-
-Later runs skip steps 2 and 3 and open the GUI immediately.
-
-### Manual launch (alternative)
-
-If you'd rather skip the launcher, from PowerShell or Command Prompt in
-the project folder:
+Manual launch alternative:
 
 ```cmd
 python -m venv .venv
@@ -67,10 +62,23 @@ python -m venv .venv
 .venv\Scripts\python lithopainter_gui.py
 ```
 
-### Refreshing dependencies
+If `requirements.txt` changes after a `git pull`, delete `.venv` and re-run
+`Lithopainter.bat` to rebuild it.
 
-If `requirements.txt` changes after a `git pull`, delete the `.venv`
-folder and re-run `Lithopainter.bat` to rebuild it from scratch.
+### Building the installer (maintainers)
+
+To produce `LithopainterSetup.exe` for release:
+
+1. Install [Inno Setup 6+](https://jrsoftware.org/isdl.php) and make sure
+   `iscc.exe` is on PATH (or available at the default location).
+2. From the project root in PowerShell:
+   ```powershell
+   .\build_exe.ps1
+   ```
+
+The script runs PyInstaller against `build\lithopainter.spec`, downloads the
+Adoptium Temurin 21 JRE, stages it next to the EXE, then compiles
+`build\installer.iss` into `installer-out\LithopainterSetup.exe` (~120 MB).
 
 ## Project Files
 
