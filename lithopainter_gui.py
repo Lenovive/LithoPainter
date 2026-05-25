@@ -4015,15 +4015,18 @@ class LithoWindow(QMainWindow):
         # ── Quick presets ─────────────────────────────────────────────────────
         PREP_PRESETS = [
             ("Off",            dict(upscale=1, blur=0,  quantize=0,  threshold=160, grayscale=False)),
-            ("Balanced",       dict(upscale=2, blur=5,  quantize=20, threshold=160, grayscale=False)),
+            ("Balanced",       dict(upscale=3, blur=5,  quantize=30, threshold=160, grayscale=False)),
             ("Low res",        dict(upscale=4, blur=15, quantize=40, threshold=140, grayscale=False)),
-            ("Reduce islands", dict(upscale=2, blur=10, quantize=55, threshold=130, grayscale=False)),
+            ("Reduce islands", dict(upscale=3, blur=10, quantize=60, threshold=130, grayscale=False)),
+            ("Sharp lines",    dict(upscale=3, blur=0,  quantize=10, threshold=190, grayscale=False)),
+            ("Max detail",     dict(upscale=4, blur=0,  quantize=0,  threshold=160, grayscale=False)),
+            ("Grayscale",      dict(upscale=3, blur=5,  quantize=20, threshold=100, grayscale=True)),
         ]
         self._prep_preset_btns: dict = {}
 
-        preset_row = QHBoxLayout()
-        preset_row.setSpacing(4)
-        for label, vals in PREP_PRESETS:
+        preset_grid = QGridLayout()
+        preset_grid.setSpacing(4)
+        for idx, (label, vals) in enumerate(PREP_PRESETS):
             btn = QPushButton(label)
             btn.setFont(_uf(9))
             btn.setFixedHeight(22)
@@ -4045,9 +4048,8 @@ class LithoWindow(QMainWindow):
 
             btn.clicked.connect(_make_preset_cb(vals, label))
             self._prep_preset_btns[label] = btn
-            preset_row.addWidget(btn)
-        preset_row.addStretch()
-        content_lay.addLayout(preset_row)
+            preset_grid.addWidget(btn, idx // 4, idx % 4)
+        content_lay.addLayout(preset_grid)
 
         # ── Upscale ───────────────────────────────────────────────────────────
         up_lbl = QLabel("Upscale input")
