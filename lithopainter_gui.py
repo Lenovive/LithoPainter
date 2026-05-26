@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
 )
 
 try:
-    from PIL import Image, ImageEnhance
+    from PIL import Image, ImageEnhance, ImageFilter
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
@@ -2518,6 +2518,13 @@ class LithoWindow(QMainWindow):
         self._adj_tint:       int = 0   # -100 green … +100 magenta
         self._adj_color_temp: int = 0   # -100 cool  … +100 warm
 
+        # STL prep — applied only at export, after crop, to optimise input for pixelstl
+        self._prep_upscale:   int   = 1     # 1 | 2 | 3 | 4
+        self._prep_blur:      int   = 0     # 0-30 → /10 = 0.0-3.0 px Gaussian radius
+        self._prep_quantize:  int   = 0     # 0-80 %  — snaps nearby bright tones
+        self._prep_threshold: int   = 160   # 0-255 — only quantize above this luminance
+        self._prep_grayscale: bool  = False # convert to luminance grey before export
+
         self._build_window()
         _on_theme(self._on_theme_changed)
 
@@ -2809,6 +2816,8 @@ class LithoWindow(QMainWindow):
         ilay.setSpacing(0)
 
         ilay.addWidget(self._make_image_tools_group())
+        ilay.addWidget(_hline())
+        ilay.addWidget(self._make_stl_prep_group())
         ilay.addWidget(_hline())
         ilay.addWidget(self._make_frame_group())
         ilay.addWidget(_hline())
@@ -3921,6 +3930,369 @@ class LithoWindow(QMainWindow):
 
     # ── Rotation & Adjustments ────────────────────────────────────────────────
 
+    def _apply_preprocessing(self, img):
+        """Upscale, blur, and tone-quantize a PIL RGB image for STL export.
+        Called after crop so coordinates stay in original image space.
+        Never called for the live canvas preview."""
+        if not HAS_PIL:
+            return img
+
+        if self._prep_upscale > 1:
+            new_w = img.width * self._prep_upscale
+            new_h = img.height * self._prep_upscale
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+
+        if self._prep_blur > 0:
+            img = img.filter(ImageFilter.GaussianBlur(radius=self._prep_blur / 10.0))
+
+        if self._prep_quantize > 0:
+            thresh = self._prep_threshold
+            steps  = max(2, round(16 * (1 - self._prep_quantize / 100.0)))
+            lut = [
+                int(min(255, thresh + round(((i - thresh) / (255 - thresh)) * steps) / steps * (255 - thresh)))
+                if i >= thresh else i
+                for i in range(256)
+            ]
+            img = img.point(lut * 3)
+
+        return img
+
+    def _make_stl_prep_group(self) -> QWidget:
+        """Build the collapsible 'STL prep' panel in the left settings column."""
+        grp = QWidget()
+        grp.setStyleSheet("background: transparent;")
+        vlay = QVBoxLayout(grp)
+        vlay.setContentsMargins(10, 8, 10, 10)
+        vlay.setSpacing(6)
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content.hide()
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(0, 4, 0, 0)
+        content_lay.setSpacing(10)
+
+        # ── Header ────────────────────────────────────────────────────────────
+        head_row = QHBoxLayout()
+        head_row.setSpacing(6)
+
+        chevron = QPushButton("▶")
+        chevron.setFixedSize(18, 18)
+        chevron.setFont(_uf(9))
+        chevron.setFlat(True)
+        chevron.setStyleSheet("background: transparent; border: none; padding: 0;")
+        chevron.setCursor(Qt.CursorShape.PointingHandCursor)
+        head_row.addWidget(chevron)
+
+        head = QLabel("STL prep")
+        head.setFont(_uf(10, 600))
+        head.setStyleSheet(
+            f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;"
+        )
+        _on_theme(lambda: head.setStyleSheet(
+            f"color: {T['mid']}; letter-spacing: 0.12em; background: transparent;"
+        ))
+        head.setCursor(Qt.CursorShape.PointingHandCursor)
+        head_row.addWidget(head)
+        head_row.addStretch()
+
+        reset_btn = QPushButton("Reset")
+        reset_btn.setFixedHeight(18)
+        reset_btn.setFont(_uf(9))
+        reset_btn.setToolTip("Reset all STL prep settings to defaults")
+        reset_btn.clicked.connect(self._reset_prep)
+        head_row.addWidget(reset_btn)
+        vlay.addLayout(head_row)
+
+        def _toggle():
+            expanded = content.isVisible()
+            content.setVisible(not expanded)
+            chevron.setText("▶" if expanded else "▼")
+
+        chevron.clicked.connect(_toggle)
+        head.mousePressEvent = lambda _e: _toggle()
+
+        # ── Quick presets ─────────────────────────────────────────────────────
+        PREP_PRESETS = [
+            ("Off",            dict(upscale=1, blur=0,  quantize=0,  threshold=160, grayscale=False)),
+            ("Balanced",       dict(upscale=3, blur=5,  quantize=30, threshold=160, grayscale=False)),
+            ("Low res",        dict(upscale=4, blur=15, quantize=40, threshold=140, grayscale=False)),
+            ("Reduce islands", dict(upscale=3, blur=10, quantize=60, threshold=130, grayscale=False)),
+            ("Sharp lines",    dict(upscale=3, blur=0,  quantize=10, threshold=190, grayscale=False)),
+            ("Max detail",     dict(upscale=4, blur=0,  quantize=0,  threshold=160, grayscale=False)),
+            ("Grayscale",      dict(upscale=3, blur=5,  quantize=20, threshold=100, grayscale=True)),
+        ]
+        self._prep_preset_btns: dict = {}
+
+        preset_grid = QGridLayout()
+        preset_grid.setSpacing(4)
+        for idx, (label, vals) in enumerate(PREP_PRESETS):
+            btn = QPushButton(label)
+            btn.setFont(_uf(9))
+            btn.setFixedHeight(22)
+            btn.setCheckable(True)
+            btn.setChecked(label == "Off")
+
+            def _make_preset_cb(v, lbl):
+                def _cb():
+                    self._prep_upscale   = v["upscale"]
+                    self._prep_blur      = v["blur"]
+                    self._prep_quantize  = v["quantize"]
+                    self._prep_threshold = v["threshold"]
+                    self._prep_grayscale = v["grayscale"]
+                    self._sync_prep_ui()
+                    for _l, _b in self._prep_preset_btns.items():
+                        _b.setChecked(_l == lbl)
+                    self._schedule_canvas_refresh()
+                return _cb
+
+            btn.clicked.connect(_make_preset_cb(vals, label))
+            self._prep_preset_btns[label] = btn
+            preset_grid.addWidget(btn, idx // 4, idx % 4)
+        content_lay.addLayout(preset_grid)
+
+        # ── Upscale ───────────────────────────────────────────────────────────
+        up_lbl = QLabel("Upscale input")
+        up_lbl.setFont(_uf(10, 500))
+        up_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;")
+        _on_theme(lambda: up_lbl.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
+
+        up_tip = QLabel(
+            "Multiply source resolution before passing to the STL engine. "
+            "Helps low-res images retain detail in the output mesh."
+        )
+        up_tip.setFont(_mf(9))
+        up_tip.setWordWrap(True)
+        up_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;")
+        _on_theme(lambda: up_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;"))
+
+        self._prep_upscale_btns: dict = {}
+        scale_row = QHBoxLayout()
+        scale_row.setSpacing(5)
+        for scale in (1, 2, 3, 4):
+            b = QPushButton(f"{scale}×")
+            b.setFont(_uf(10, 600))
+            b.setFixedSize(38, 26)
+            b.setCheckable(True)
+            b.setChecked(scale == self._prep_upscale)
+
+            def _make_scale_cb(s):
+                def _cb():
+                    self._prep_upscale = s
+                    for _s, _b in self._prep_upscale_btns.items():
+                        _b.setChecked(_s == s)
+                    for _b in self._prep_preset_btns.values():
+                        _b.setChecked(False)
+                    self._schedule_canvas_refresh()
+                return _cb
+
+            b.clicked.connect(_make_scale_cb(scale))
+            self._prep_upscale_btns[scale] = b
+            scale_row.addWidget(b)
+        scale_row.addStretch()
+
+        up_box = QWidget()
+        up_box.setStyleSheet("background: transparent;")
+        ubl = QVBoxLayout(up_box)
+        ubl.setContentsMargins(0, 0, 0, 0)
+        ubl.setSpacing(4)
+        ubl.addWidget(up_lbl)
+        ubl.addLayout(scale_row)
+        ubl.addWidget(up_tip)
+        content_lay.addWidget(up_box)
+
+        # ── Edge blur ─────────────────────────────────────────────────────────
+        blur_hdr = QHBoxLayout()
+        blur_name = QLabel("Edge blur")
+        blur_name.setFont(_uf(10, 500))
+        blur_name.setStyleSheet(f"color: {T['ink']}; background: transparent;")
+        _on_theme(lambda: blur_name.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
+        blur_hdr.addWidget(blur_name)
+        blur_hdr.addStretch()
+        self._prep_blur_val_lbl = QLabel("0.0 px")
+        self._prep_blur_val_lbl.setFont(_mf(10))
+        self._prep_blur_val_lbl.setStyleSheet(f"color: {T['ok']}; background: transparent;")
+        _on_theme(lambda: self._prep_blur_val_lbl.setStyleSheet(
+            f"color: {T['ok']}; background: transparent;"
+        ))
+        blur_hdr.addWidget(self._prep_blur_val_lbl)
+
+        self._prep_blur_slider = QSlider(Qt.Orientation.Horizontal)
+        self._prep_blur_slider.setRange(0, 30)
+        self._prep_blur_slider.setValue(self._prep_blur)
+        self._prep_blur_slider.setToolTip(
+            "Gaussian blur applied after upscale to soften aliased colour edges (0 = off)"
+        )
+
+        def _on_blur(v):
+            self._prep_blur = v
+            self._prep_blur_val_lbl.setText(f"{v / 10:.1f} px")
+            for _b in self._prep_preset_btns.values():
+                _b.setChecked(False)
+            self._schedule_canvas_refresh()
+
+        self._prep_blur_slider.valueChanged.connect(_on_blur)
+
+        blur_tip = QLabel("Smooths aliased colour boundaries. Apply after upscaling.")
+        blur_tip.setFont(_mf(9))
+        blur_tip.setWordWrap(True)
+        blur_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;")
+        _on_theme(lambda: blur_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;"))
+
+        blur_box = QWidget()
+        blur_box.setStyleSheet("background: transparent;")
+        bbl = QVBoxLayout(blur_box)
+        bbl.setContentsMargins(0, 0, 0, 0)
+        bbl.setSpacing(4)
+        bbl.addLayout(blur_hdr)
+        bbl.addWidget(self._prep_blur_slider)
+        bbl.addWidget(blur_tip)
+        content_lay.addWidget(blur_box)
+
+        # ── Tone quantize ─────────────────────────────────────────────────────
+        q_hdr = QHBoxLayout()
+        q_name = QLabel("Tone quantize")
+        q_name.setFont(_uf(10, 500))
+        q_name.setStyleSheet(f"color: {T['ink']}; background: transparent;")
+        _on_theme(lambda: q_name.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
+        q_hdr.addWidget(q_name)
+        q_hdr.addStretch()
+        self._prep_quantize_val_lbl = QLabel("0%")
+        self._prep_quantize_val_lbl.setFont(_mf(10))
+        self._prep_quantize_val_lbl.setStyleSheet(f"color: {T['ok']}; background: transparent;")
+        _on_theme(lambda: self._prep_quantize_val_lbl.setStyleSheet(
+            f"color: {T['ok']}; background: transparent;"
+        ))
+        q_hdr.addWidget(self._prep_quantize_val_lbl)
+
+        self._prep_quantize_slider = QSlider(Qt.Orientation.Horizontal)
+        self._prep_quantize_slider.setRange(0, 80)
+        self._prep_quantize_slider.setValue(self._prep_quantize)
+        self._prep_quantize_slider.setToolTip(
+            "Snap nearby bright tones to the same value, reducing the number of "
+            "distinct colour layers the engine has to generate (0 = off)"
+        )
+
+        # Threshold sub-control (hidden when quantize == 0)
+        self._prep_threshold_widget = QWidget()
+        self._prep_threshold_widget.setStyleSheet("background: transparent;")
+        tw_lay = QVBoxLayout(self._prep_threshold_widget)
+        tw_lay.setContentsMargins(0, 4, 0, 0)
+        tw_lay.setSpacing(4)
+
+        t_hdr = QHBoxLayout()
+        t_name = QLabel("Threshold")
+        t_name.setFont(_uf(10, 500))
+        t_name.setStyleSheet(f"color: {T['ink']}; background: transparent;")
+        _on_theme(lambda: t_name.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
+        t_hdr.addWidget(t_name)
+        t_hdr.addStretch()
+        self._prep_threshold_val_lbl = QLabel(str(self._prep_threshold))
+        self._prep_threshold_val_lbl.setFont(_mf(10))
+        self._prep_threshold_val_lbl.setStyleSheet(f"color: {T['ok']}; background: transparent;")
+        _on_theme(lambda: self._prep_threshold_val_lbl.setStyleSheet(
+            f"color: {T['ok']}; background: transparent;"
+        ))
+        t_hdr.addWidget(self._prep_threshold_val_lbl)
+
+        self._prep_threshold_slider = QSlider(Qt.Orientation.Horizontal)
+        self._prep_threshold_slider.setRange(100, 220)
+        self._prep_threshold_slider.setValue(self._prep_threshold)
+        self._prep_threshold_slider.setToolTip(
+            "Only quantize pixels brighter than this luminance value (0–255). "
+            "Protects shadow detail from being flattened."
+        )
+
+        def _on_threshold(v):
+            self._prep_threshold = v
+            self._prep_threshold_val_lbl.setText(str(v))
+            for _b in self._prep_preset_btns.values():
+                _b.setChecked(False)
+
+        self._prep_threshold_slider.valueChanged.connect(_on_threshold)
+
+        t_tip = QLabel("Only affects pixels brighter than this value. Keeps shadows intact.")
+        t_tip.setFont(_mf(9))
+        t_tip.setWordWrap(True)
+        t_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;")
+        _on_theme(lambda: t_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;"))
+
+        tw_lay.addLayout(t_hdr)
+        tw_lay.addWidget(self._prep_threshold_slider)
+        tw_lay.addWidget(t_tip)
+        self._prep_threshold_widget.setVisible(self._prep_quantize > 0)
+
+        def _on_quantize(v):
+            self._prep_quantize = v
+            self._prep_quantize_val_lbl.setText(f"{v}%")
+            self._prep_threshold_widget.setVisible(v > 0)
+            for _b in self._prep_preset_btns.values():
+                _b.setChecked(False)
+            self._schedule_canvas_refresh()
+
+        self._prep_quantize_slider.valueChanged.connect(_on_quantize)
+
+        q_tip = QLabel(
+            "Snaps similar bright tones together to reduce layer island count "
+            "in the generated STL."
+        )
+        q_tip.setFont(_mf(9))
+        q_tip.setWordWrap(True)
+        q_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;")
+        _on_theme(lambda: q_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;"))
+
+        q_box = QWidget()
+        q_box.setStyleSheet("background: transparent;")
+        qbl = QVBoxLayout(q_box)
+        qbl.setContentsMargins(0, 0, 0, 0)
+        qbl.setSpacing(4)
+        qbl.addLayout(q_hdr)
+        qbl.addWidget(self._prep_quantize_slider)
+        qbl.addWidget(q_tip)
+        qbl.addWidget(self._prep_threshold_widget)
+        content_lay.addWidget(q_box)
+
+        # ── Grayscale ─────────────────────────────────────────────────────────
+        gray_hdr = QHBoxLayout()
+        gray_name = QLabel("Grayscale")
+        gray_name.setFont(_uf(10, 500))
+        gray_name.setStyleSheet(f"color: {T['ink']}; background: transparent;")
+        _on_theme(lambda: gray_name.setStyleSheet(f"color: {T['ink']}; background: transparent;"))
+        gray_hdr.addWidget(gray_name)
+        gray_hdr.addStretch()
+
+        self._prep_gray_toggle = ToggleSwitch(checked=self._prep_grayscale)
+
+        def _on_gray(v):
+            self._prep_grayscale = v
+            for _b in self._prep_preset_btns.values():
+                _b.setChecked(False)
+            self._schedule_canvas_refresh()
+
+        self._prep_gray_toggle.toggled.connect(_on_gray)
+        gray_hdr.addWidget(self._prep_gray_toggle)
+
+        gray_tip = QLabel(
+            "Convert to luminance greyscale before export. "
+            "Useful for single-filament or texture-only prints."
+        )
+        gray_tip.setFont(_mf(9))
+        gray_tip.setWordWrap(True)
+        gray_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;")
+        _on_theme(lambda: gray_tip.setStyleSheet(f"color: {T['dim']}; background: transparent;"))
+
+        gray_box = QWidget()
+        gray_box.setStyleSheet("background: transparent;")
+        gbl = QVBoxLayout(gray_box)
+        gbl.setContentsMargins(0, 0, 0, 0)
+        gbl.setSpacing(4)
+        gbl.addLayout(gray_hdr)
+        gbl.addWidget(gray_tip)
+        content_lay.addWidget(gray_box)
+
+        vlay.addWidget(content)
+        return grp
+
     def _apply_adjustments(self, img):
         """Apply all image-tool adjustments to a PIL RGB Image. Returns PIL Image."""
         if not HAS_PIL:
@@ -3928,7 +4300,8 @@ class LithoWindow(QMainWindow):
         all_zero = (
             self._adj_color_temp == 0 and self._adj_tint == 0 and
             self._adj_exposure == 0 and self._adj_highlights == 0 and
-            self._adj_shadows == 0 and self._adj_saturation == 0
+            self._adj_shadows == 0 and self._adj_saturation == 0 and
+            not self._prep_grayscale
         )
         if all_zero:
             return img
@@ -3982,6 +4355,9 @@ class LithoWindow(QMainWindow):
         if sat != 0:
             factor = 1.0 + sat / 100.0   # 0× – 2×
             img = ImageEnhance.Color(img).enhance(factor)
+
+        if self._prep_grayscale:
+            img = img.convert("L").convert("RGB")
 
         return img
 
@@ -4125,6 +4501,52 @@ class LithoWindow(QMainWindow):
             if control:
                 control.setValue(0)
         self._refresh_canvas_with_adjustments()
+
+    def _reset_prep(self) -> None:
+        """Reset all STL prep controls to defaults."""
+        self._prep_upscale   = 1
+        self._prep_blur      = 0
+        self._prep_quantize  = 0
+        self._prep_threshold = 160
+        self._prep_grayscale = False
+        self._sync_prep_ui()
+        self._schedule_canvas_refresh()
+
+    def _sync_prep_ui(self) -> None:
+        """Push current prep state values back to all widgets."""
+        for scale, btn in getattr(self, "_prep_upscale_btns", {}).items():
+            btn.setChecked(scale == self._prep_upscale)
+        for label, btn in getattr(self, "_prep_preset_btns", {}).items():
+            btn.setChecked(False)
+
+        blur_sl = getattr(self, "_prep_blur_slider", None)
+        if blur_sl:
+            blur_sl.blockSignals(True)
+            blur_sl.setValue(self._prep_blur)
+            blur_sl.blockSignals(False)
+            self._prep_blur_val_lbl.setText(f"{self._prep_blur / 10:.1f} px")
+
+        q_sl = getattr(self, "_prep_quantize_slider", None)
+        if q_sl:
+            q_sl.blockSignals(True)
+            q_sl.setValue(self._prep_quantize)
+            q_sl.blockSignals(False)
+            self._prep_quantize_val_lbl.setText(f"{self._prep_quantize}%")
+
+        t_sl = getattr(self, "_prep_threshold_slider", None)
+        if t_sl:
+            t_sl.blockSignals(True)
+            t_sl.setValue(self._prep_threshold)
+            t_sl.blockSignals(False)
+            self._prep_threshold_val_lbl.setText(str(self._prep_threshold))
+
+        tw = getattr(self, "_prep_threshold_widget", None)
+        if tw:
+            tw.setVisible(self._prep_quantize > 0)
+
+        gt = getattr(self, "_prep_gray_toggle", None)
+        if gt:
+            gt.setChecked(self._prep_grayscale)
 
     # ── Presets ───────────────────────────────────────────────────────────────
     def _apply_preset(self, key: str) -> None:
@@ -5289,11 +5711,16 @@ class LithoWindow(QMainWindow):
                     needs_crop = (abs(cw - iw) > 1 or abs(ch - ih) > 1)
                 needs_convert = ext not in JAVA_SUPPORTED
                 needs_rotate  = self._rotation != 0
-                needs_adjust  = HAS_PIL and any(
-                    v != 0 for v in [
+                needs_adjust  = HAS_PIL and (
+                    any(v != 0 for v in [
                         self._adj_color_temp, self._adj_tint, self._adj_exposure,
                         self._adj_highlights, self._adj_shadows, self._adj_saturation,
-                    ]
+                    ]) or self._prep_grayscale
+                )
+                needs_prep    = HAS_PIL and (
+                    self._prep_upscale > 1 or
+                    self._prep_blur > 0 or
+                    self._prep_quantize > 0
                 )
 
                 try:
@@ -5308,7 +5735,7 @@ class LithoWindow(QMainWindow):
                     needs_border is False). Otherwise the inner content is
                     shrunk and padded with the given color."""
                     if not (needs_crop or needs_convert or needs_rotate or
-                            needs_adjust or border_rgb is not None):
+                            needs_adjust or needs_prep or border_rgb is not None):
                         return img
                     if not HAS_PIL:
                         raise RuntimeError(
@@ -5337,6 +5764,8 @@ class LithoWindow(QMainWindow):
                             out_img = _apply_source_border(
                                 out_img, border_mm_val, out_w_mm, border_rgb
                             )
+                        if needs_prep:
+                            out_img = self._apply_preprocessing(out_img)
                         out_img.save(tmp.name, "PNG")
                     return tmp.name
 
